@@ -263,7 +263,7 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
           tempDirExists: fs.existsSync('/tmp/packputer'),
           filesInTemp: fs.existsSync('/tmp/packputer') ? fs.readdirSync('/tmp/packputer').slice(0, 10) : [],
           firstFilePath: firstFile.filePath,
-          firstFileExists: fs.existsSync(firstFile.filePath),
+          firstFileExists: firstFile.filePath ? fs.existsSync(firstFile.filePath) : false,
         });
         await ctx.reply('❌ First sticker file not found. The file may have been cleaned up. Please try again.');
         return;
@@ -273,7 +273,7 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
         title: session.packTitle || 'My Pack',
         shortName,
         firstFile: firstFile.filePath,
-        fileExists: fs.existsSync(firstFile.filePath),
+        fileExists: firstFile.filePath ? fs.existsSync(firstFile.filePath) : false,
         emoji,
       });
 
