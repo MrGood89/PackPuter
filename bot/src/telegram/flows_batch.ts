@@ -166,17 +166,30 @@ async function handleFileUpload(ctx: Context) {
 
       setSession(ctx.from!.id, currentSession);
 
+      console.log(`[Batch] File converted for user ${ctx.from!.id}: ${result.output_path}, total files: ${currentSession.uploadedFiles.length}`);
+
       await ctx.reply(
         `✅ Ready: ${result.duration.toFixed(1)}s · ${result.width}x${result.height}px · ${result.kb}KB`
       );
 
-      // Auto-proceed if we've reached the batch limit or if user has 10 files
-      if (currentSession.uploadedFiles.length >= MAX_BATCH_SIZE) {
-        await ctx.reply(
-          '✅ All files converted! Create new pack or add to existing?',
-          packActionKeyboard
-        );
-      }
+      // Auto-proceed after a short delay to allow user to send more files
+      // If no new files arrive within 3 seconds, proceed automatically
+      setTimeout(async () => {
+        const finalSession = getSession(ctx.from!.id);
+        // Only auto-proceed if still in batch mode and we have files
+        if (finalSession.mode === 'batch' && finalSession.uploadedFiles.length > 0) {
+          // Check if user sent more files (compare file count)
+          const fileCountAfterDelay = finalSession.uploadedFiles.length;
+          // If file count matches what we had, user hasn't sent more - proceed
+          if (fileCountAfterDelay === currentSession.uploadedFiles.length) {
+            console.log(`[Batch] Auto-proceeding for user ${ctx.from!.id} with ${fileCountAfterDelay} files`);
+            await ctx.reply(
+              '✅ All files converted! Create new pack or add to existing?',
+              packActionKeyboard
+            );
+          }
+        }
+      }, 3000); // 3 second delay
     } catch (error: any) {
       console.error('Conversion error:', error);
       console.error('Error details:', {
@@ -244,30 +257,43 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
       const firstFile = session.uploadedFiles[0];
       
       // Verify all files exist before proceeding
+      console.log(`[Pack Creation] Starting pack creation for user ${ctx.from!.id}, files: ${session.uploadedFiles.length}`);
       const missingFiles = session.uploadedFiles.filter(f => !f.filePath || !fs.existsSync(f.filePath));
       if (missingFiles.length > 0) {
-        console.error('Missing files:', missingFiles.map(f => f.filePath));
-        console.error('All files:', session.uploadedFiles.map(f => ({
+        console.error('[Pack Creation] Missing files:', missingFiles.map(f => f.filePath));
+        console.error('[Pack Creation] All files:', session.uploadedFiles.map(f => ({
           path: f.filePath,
           exists: f.filePath ? fs.existsSync(f.filePath) : false,
           size: f.filePath && fs.existsSync(f.filePath) ? fs.statSync(f.filePath).size : 0
         })));
+        console.error('[Pack Creation] Temp directory check:', {
+          tempDir: '/tmp/packputer',
+          exists: fs.existsSync('/tmp/packputer'),
+          files: fs.existsSync('/tmp/packputer') ? fs.readdirSync('/tmp/packputer').slice(0, 20) : []
+        });
         await ctx.reply(`❌ ${missingFiles.length} file(s) not found. Please try converting again.`);
         return;
       }
       
       if (!firstFile.filePath || !fs.existsSync(firstFile.filePath)) {
-        console.error('First sticker file not found:', firstFile.filePath);
-        console.error('File system check:', {
+        console.error('[Pack Creation] First sticker file not found:', firstFile.filePath);
+        console.error('[Pack Creation] File system check:', {
           tempDir: '/tmp/packputer',
           tempDirExists: fs.existsSync('/tmp/packputer'),
-          filesInTemp: fs.existsSync('/tmp/packputer') ? fs.readdirSync('/tmp/packputer').slice(0, 10) : [],
+          filesInTemp: fs.existsSync('/tmp/packputer') ? fs.readdirSync('/tmp/packputer').slice(0, 20) : [],
           firstFilePath: firstFile.filePath,
           firstFileExists: firstFile.filePath ? fs.existsSync(firstFile.filePath) : false,
+          allFilePaths: session.uploadedFiles.map(f => f.filePath),
         });
         await ctx.reply('❌ First sticker file not found. The file may have been cleaned up. Please try again.');
         return;
       }
+      
+      console.log('[Pack Creation] First file verified:', {
+        path: firstFile.filePath,
+        exists: true,
+        size: fs.statSync(firstFile.filePath).size
+      });
 
       console.log('Creating sticker set:', {
         title: session.packTitle || 'My Pack',
