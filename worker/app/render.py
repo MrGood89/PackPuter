@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import secrets
 import shutil
 import subprocess
 from PIL import Image, ImageDraw, ImageFont
@@ -63,8 +64,10 @@ def render_animation(
     sparkles = effects.get('sparkles', False)
     sparkle_count = effects.get('sparkle_count', 6)
     
-    # Create frames directory in shared volume
-    frames_dir = '/tmp/packputer/frames_' + os.path.basename(base_image_path).replace('.', '_').replace('/', '_') + '_' + str(int(time.time()))
+    # Create frames directory in shared volume with unique name
+    unique_id = secrets.token_hex(8)  # 16 hex chars
+    timestamp = int(time.time() * 1000)  # milliseconds for better precision
+    frames_dir = f'/tmp/packputer/frames_{timestamp}_{unique_id}'
     os.makedirs(frames_dir, exist_ok=True)
     frame_paths = []
     
@@ -174,8 +177,10 @@ def render_animation(
             frame_paths.append(frame_path)
         
         # Encode to WEBM using ffmpeg
-        # First create a temporary video from frames in shared volume
-        temp_video = '/tmp/packputer/temp_video_' + os.path.basename(base_image_path).replace('.', '_').replace('/', '_') + '_' + str(int(time.time())) + '.webm'
+        # First create a temporary video from frames in shared volume with unique name
+        unique_id = secrets.token_hex(8)
+        timestamp = int(time.time() * 1000)
+        temp_video = f'/tmp/packputer/temp_video_{timestamp}_{unique_id}.webm'
         
         # Use ffmpeg to create video from frames
         cmd = [

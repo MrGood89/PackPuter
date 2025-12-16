@@ -1,5 +1,7 @@
 import os
 import tempfile
+import secrets
+import time
 from typing import Tuple, Optional
 from .ffmpeg_utils import probe_media, encode_webm, get_file_size_kb
 
@@ -50,9 +52,12 @@ def fit_to_limits(
                 continue
                 
             for crf_val in crf_options:
+                # Use unique identifier instead of input filename to avoid collisions
+                unique_id = secrets.token_hex(8)  # 16 hex chars
+                timestamp = int(time.time() * 1000)
                 output_path = os.path.join(
                     temp_dir,
-                    f'sticker_{os.path.basename(input_path)}_{side}_{fps_val}_{crf_val}.webm'
+                    f'sticker_{timestamp}_{unique_id}_{side}_{fps_val}_{crf_val}.webm'
                 )
                 
                 # Try encoding

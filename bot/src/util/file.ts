@@ -12,7 +12,10 @@ export function ensureTempDir(): string {
 
 export function getTempFilePath(prefix: string, extension: string): string {
   const dir = ensureTempDir();
-  const filename = `${prefix}_${Date.now()}_${Math.random().toString(36).substring(7)}.${extension}`;
+  // Use crypto for better uniqueness (timestamp + random bytes)
+  const crypto = require('crypto');
+  const randomBytes = crypto.randomBytes(8).toString('hex'); // 16 hex chars
+  const filename = `${prefix}_${Date.now()}_${randomBytes}.${extension}`;
   return path.join(dir, filename);
 }
 
