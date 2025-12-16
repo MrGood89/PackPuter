@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  bot:
+    build:
+      context: ./bot
+      dockerfile: Dockerfile
+    container_name: packputer_bot
+    env_file:
+      - ./bot/.env
+    environment:
+      - NODE_ENV=production
+    volumes:
+      - ./bot/src:/app/src
+      - packputer_temp:/tmp/packputer
+    depends_on:
+      - worker
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: packputer_worker
+    env_file:
+      - ./worker/.env
+    volumes:
+      - packputer_temp:/tmp/packputer
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+volumes:
+  packputer_temp:
+
