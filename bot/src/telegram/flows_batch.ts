@@ -3,7 +3,7 @@ import fs from 'fs';
 import axios from 'axios';
 import { getSession, setSession, resetSession } from './sessions';
 import { env } from '../env';
-import { getAddStickerLink } from './menus';
+import { getAddStickerLink, REPLY_OPTIONS } from './menus';
 import { isValidVideoFile } from '../util/validate';
 import { getTempFilePath, cleanupFile } from '../util/file';
 import { workerClient } from '../services/workerClient';
@@ -28,7 +28,7 @@ export function setupBatchConvertFlow(bot: Telegraf) {
 
     await ctx.reply(
       `Send up to 10 GIFs/videos. I'll convert each into Telegram-ready stickers.\nWhen finished, use /done command.`,
-      { reply_markup: { remove_keyboard: true } }
+      REPLY_OPTIONS
     );
   });
 
@@ -38,7 +38,7 @@ export function setupBatchConvertFlow(bot: Telegraf) {
     console.log(`[${timestamp}] [Batch] /done command received from user ${ctx.from!.id}`);
     const session = getSession(ctx.from!.id);
     if (session.mode !== 'batch' || session.uploadedFiles.length === 0) {
-      await ctx.reply('No files to process. Use Batch Convert to start.');
+      await ctx.reply('No files to process. Use /batch to start.', REPLY_OPTIONS);
       return;
     }
 
@@ -46,7 +46,7 @@ export function setupBatchConvertFlow(bot: Telegraf) {
     const missingFiles = session.uploadedFiles.filter(f => !f.filePath || !fs.existsSync(f.filePath));
     if (missingFiles.length > 0) {
       console.error('Files missing when Done pressed:', missingFiles);
-      await ctx.reply(`❌ ${missingFiles.length} file(s) are missing. Please convert them again.`);
+      await ctx.reply(`❌ ${missingFiles.length} file(s) are missing. Please convert them again.`, REPLY_OPTIONS);
       return;
     }
 
@@ -54,7 +54,7 @@ export function setupBatchConvertFlow(bot: Telegraf) {
       '✅ All files ready! Reply with:\n' +
       '• "new" to create a new pack\n' +
       '• "existing <pack_name>" to add to existing pack',
-      { reply_markup: { remove_keyboard: true } }
+      REPLY_OPTIONS
     );
   });
 
@@ -90,7 +90,8 @@ async function handleFileUpload(ctx: Context) {
   if (session.uploadedFiles.length >= MAX_BATCH_SIZE) {
     console.log(`[${startTimestamp}] [Batch] Batch limit reached (${session.uploadedFiles.length}/${MAX_BATCH_SIZE})`);
     await ctx.reply(
-      `Batch limit is 10. Processing will start automatically...`
+      `Batch limit is 10. Processing will start automatically...`,
+      REPLY_OPTIONS
     );
     // Still process the file, but will auto-proceed after conversion
   }
@@ -110,14 +111,14 @@ async function handleFileUpload(ctx: Context) {
   }
 
   if (!fileId || !mimeType || !isValidVideoFile(mimeType)) {
-    await ctx.reply('Please send a valid GIF or video file.');
+    await ctx.reply('Please send a valid GIF or video file.', REPLY_OPTIONS);
     return;
   }
 
   // Send immediate response WITHOUT awaiting - this allows handler to return immediately
   const uploadTimestamp = new Date().toISOString();
   console.log(`[${uploadTimestamp}] [Batch] Starting processing for fileId: ${fileId}, mimeType: ${mimeType}`);
-  ctx.reply('⏳ Processing...').catch(err => console.error(`[${uploadTimestamp}] [Batch] Failed to send processing message:`, err));
+  ctx.reply('⏳ Processing...', REPLY_OPTIONS).catch(err => console.error(`[${uploadTimestamp}] [Batch] Failed to send processing message:`, err));
   
   // Process in background - use setImmediate to defer execution
   // This allows the handler to return immediately
@@ -213,7 +214,8 @@ async function handleFileUpload(ctx: Context) {
       })));
 
       await ctx.reply(
-        `✅ Ready: ${result.duration.toFixed(1)}s · ${result.width}x${result.height}px · ${result.kb}KB`
+        `✅ Ready: ${result.duration.toFixed(1)}s · ${result.width}x${result.height}px · ${result.kb}KB`,
+        REPLY_OPTIONS
       );
 
       // Auto-proceed after a short delay to allow user to send more files
@@ -233,7 +235,7 @@ async function handleFileUpload(ctx: Context) {
                 '✅ All files converted! Reply with:\n' +
                 '• "new" to create a new pack\n' +
                 '• "existing <pack_name>" to add to existing pack',
-                { reply_markup: { remove_keyboard: true } }
+                REPLY_OPTIONS
               );
             } else {
               console.log(`[Batch] User ${ctx.from!.id} sent more files (${fileCountAfterDelay} vs ${fileCountAtCompletion}), not auto-proceeding yet`);
@@ -255,7 +257,7 @@ async function handleFileUpload(ctx: Context) {
         errorName: error.name
       });
       try {
-        await ctx.reply('❌ Failed to convert file. Please try another file.');
+        await ctx.reply('❌ Failed to convert file. Please try another file.', REPLY_OPTIONS);
       } catch (replyError) {
         console.error(`[${errorTimestamp}] [Batch] Failed to send error message:`, replyError);
       }
@@ -272,7 +274,7 @@ export async function handlePackTitle(ctx: Context, title: string) {
   if (session.mode !== 'batch' || session.chosenPackAction !== 'new') return;
 
   setSession(ctx.from!.id, { packTitle: title });
-  await ctx.reply('Choose one emoji to apply to all stickers:');
+  await ctx.reply('Choose one emoji to apply to all stickers:', REPLY_OPTIONS);
 }
 
 export async function handlePackEmoji(ctx: Context, emoji: string) {
@@ -296,7 +298,7 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
 
   if (!emoji || emoji.length > 2) {
     console.log(`[${packTimestamp}] [Pack Creation] Invalid emoji - EXITING`);
-    await ctx.reply('Please send a single emoji.');
+    await ctx.reply('Please send a single emoji.', REPLY_OPTIONS);
     return;
   }
 
@@ -305,7 +307,7 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
   try {
     if (session.chosenPackAction === 'existing' && session.existingPackName) {
       // Add to existing pack
-      await ctx.reply('📦 Adding stickers to pack...');
+      await ctx.reply('📦 Adding stickers to pack...', REPLY_OPTIONS);
       
       const packName = session.existingPackName;
       let addedCount = 0;
@@ -320,10 +322,10 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
       }
       
       const link = getAddStickerLink(packName);
-      await ctx.reply(`✅ Added ${addedCount} sticker(s)! View pack: ${link}`);
+      await ctx.reply(`✅ Added ${addedCount} sticker(s)! View pack: ${link}`, REPLY_OPTIONS);
     } else {
       // Create new pack
-      await ctx.reply('📦 Creating sticker pack...');
+      await ctx.reply('📦 Creating sticker pack...', REPLY_OPTIONS);
 
       const shortName = generateShortName(
         session.packTitle || 'MyPack',
@@ -364,7 +366,7 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
           exists: fs.existsSync('/tmp/packputer'),
           files: fs.existsSync('/tmp/packputer') ? fs.readdirSync('/tmp/packputer').slice(0, 30) : []
         });
-        await ctx.reply(`❌ ${missingFiles.length} file(s) not found. Please try converting again.`);
+        await ctx.reply(`❌ ${missingFiles.length} file(s) not found. Please try converting again.`, REPLY_OPTIONS);
         return;
       }
       
@@ -380,7 +382,7 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
           firstFileExists: firstFile.filePath ? fs.existsSync(firstFile.filePath) : false,
           allFilePaths: session.uploadedFiles.map(f => f.filePath),
         });
-        await ctx.reply('❌ First sticker file not found. The file may have been cleaned up. Please try again.');
+        await ctx.reply('❌ First sticker file not found. The file may have been cleaned up. Please try again.', REPLY_OPTIONS);
         return;
       }
       
@@ -408,7 +410,7 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
 
       if (!created) {
         console.error('createStickerSet returned false');
-        await ctx.reply('❌ Failed to create sticker set. It may already exist. Check bot logs for details.');
+        await ctx.reply('❌ Failed to create sticker set. It may already exist. Check bot logs for details.', REPLY_OPTIONS);
         return;
       }
 
@@ -429,7 +431,7 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
       }
 
       const link = getAddStickerLink(shortName);
-      await ctx.reply(`✅ Pack created! Add it here: ${link}`);
+      await ctx.reply(`✅ Pack created! Add it here: ${link}`, REPLY_OPTIONS);
     }
 
     // Cleanup
@@ -446,7 +448,7 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
       emoji: session.emoji,
       filesCount: session.uploadedFiles.length,
     });
-    await ctx.reply('❌ Failed to create pack. Check bot logs for details.');
+    await ctx.reply('❌ Failed to create pack. Check bot logs for details.', REPLY_OPTIONS);
   }
 }
 
@@ -455,6 +457,6 @@ export async function handleExistingPackName(ctx: Context, packName: string) {
   if (session.mode !== 'batch' || session.chosenPackAction !== 'existing') return;
 
   setSession(ctx.from!.id, { existingPackName: packName });
-  await ctx.reply('Choose one emoji to apply to all stickers:');
+  await ctx.reply('Choose one emoji to apply to all stickers:', REPLY_OPTIONS);
 }
 

@@ -7,7 +7,7 @@ import { isValidVideoFile } from '../util/validate';
 import { getTempFilePath, cleanupFile } from '../util/file';
 import { workerClient } from '../services/workerClient';
 import { createJob } from '../services/supabaseClient';
-// Removed menu imports - using commands only
+import { REPLY_OPTIONS } from './menus';
 
 export function setupSingleConvertFlow(bot: any) {
   // Command: /convert
@@ -20,7 +20,7 @@ export function setupSingleConvertFlow(bot: any) {
 
     await ctx.reply(
       'Send a GIF or video file to convert to a Telegram sticker.',
-      { reply_markup: { remove_keyboard: true } }
+      REPLY_OPTIONS
     );
   });
 
@@ -58,7 +58,7 @@ async function handleSingleFile(ctx: Context) {
   }
 
   if (!fileId || !mimeType || !isValidVideoFile(mimeType)) {
-    await ctx.reply('Please send a valid GIF or video file.');
+    await ctx.reply('Please send a valid GIF or video file.', REPLY_OPTIONS);
     return;
   }
 
@@ -72,7 +72,7 @@ async function handleSingleFile(ctx: Context) {
 
   if (!jobId) {
     // Fallback: process immediately if Supabase not available
-    await ctx.reply('⏳ Converting...');
+    await ctx.reply('⏳ Converting...', REPLY_OPTIONS);
     setImmediate(async () => {
       try {
         const file = await ctx.telegram.getFile(fileId);
@@ -95,12 +95,12 @@ async function handleSingleFile(ctx: Context) {
         resetSession(ctx.from!.id);
       } catch (error: any) {
         console.error('Conversion error:', error);
-        await ctx.reply('❌ Failed to convert file.');
+        await ctx.reply('❌ Failed to convert file.', REPLY_OPTIONS);
       }
     });
   } else {
     // Job created successfully - processor will handle it
-    await ctx.reply('⏳ Processing your file... I\'ll send it when ready!');
+    await ctx.reply('⏳ Processing your file... I\'ll send it when ready!', REPLY_OPTIONS);
     resetSession(ctx.from!.id);
   }
 }
