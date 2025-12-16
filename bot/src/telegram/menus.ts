@@ -5,7 +5,8 @@ import { env } from '../env';
 export const removeKeyboard = Markup.removeKeyboard();
 
 // Helper to ensure all replies remove keyboards
-export const REPLY_OPTIONS = { reply_markup: { remove_keyboard: true } };
+// Use Telegraf's Markup.removeKeyboard() which returns the correct type
+export const REPLY_OPTIONS = Markup.removeKeyboard();
 
 export function getAddStickerLink(shortName: string): string {
   return `https://t.me/addstickers/${shortName}`;

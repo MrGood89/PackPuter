@@ -1,5 +1,6 @@
 import { Telegraf } from 'telegraf';
 import { env } from './env';
+import { REPLY_OPTIONS } from './telegram/menus';
 import { setupBatchConvertFlow, handlePackTitle, handlePackEmoji, handleExistingPackName } from './telegram/flows_batch';
 import { setupSingleConvertFlow } from './telegram/flows_convert';
 import { setupAIFlows, handleProjectContext, handleTemplate } from './telegram/flows_ai';
@@ -23,7 +24,7 @@ bot.start(async (ctx) => {
     `/done - Finish batch and create pack\n` +
     `/help - Show help\n\n` +
     `Type a command to get started!`,
-    { reply_markup: { remove_keyboard: true } }
+    REPLY_OPTIONS
   );
 });
 
@@ -46,7 +47,7 @@ bot.command('help', async (ctx) => {
     `• ≤ 30 fps\n` +
     `• 512px max dimension\n` +
     `• ≤ 256 KB`,
-    { reply_markup: { remove_keyboard: true } }
+    REPLY_OPTIONS
   );
 });
 
