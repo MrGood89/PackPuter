@@ -250,6 +250,16 @@ async function handleAIGeneratePack(ctx: Context) {
   // Send immediate response
   const processingMsg = await ctx.reply('🎨 Generating sticker pack with AI...');
   
+  // Store values before async callback (TypeScript safety)
+  const packSize = session.packSize;
+  const theme = session.theme;
+  const projectContext = session.projectContext;
+  
+  if (!packSize || !theme) {
+    await ctx.reply('❌ Missing pack size or theme.');
+    return;
+  }
+  
   // Process asynchronously to avoid blocking
   setImmediate(async () => {
     try {
@@ -263,10 +273,10 @@ async function handleAIGeneratePack(ctx: Context) {
       fs.writeFileSync(baseImagePath, Buffer.from(response.data));
 
       const blueprints = await memeputerClient.getBlueprints(
-        session.packSize,
+        packSize,
         'GM', // Default template
-        session.projectContext,
-        session.theme
+        projectContext,
+        theme
       );
 
       const stickerPaths: string[] = [];
@@ -281,7 +291,9 @@ async function handleAIGeneratePack(ctx: Context) {
 
       // Ask for pack title
       await ctx.reply('What should the pack title be?');
+      const currentSession = getSession(ctx.from!.id);
       setSession(ctx.from!.id, {
+        ...currentSession,
         uploadedFiles: stickerPaths.map((path) => ({ fileId: '', filePath: path })),
         chosenPackAction: 'new', // Always create new for AI packs
       });

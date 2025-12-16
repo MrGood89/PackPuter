@@ -101,7 +101,7 @@ bot.on('text', async (ctx) => {
 // Error handling
 bot.catch((err, ctx) => {
   console.error(`Error for ${ctx.updateType}:`, err);
-  if (err.message && err.message.includes('timeout')) {
+  if (err instanceof Error && err.message && err.message.includes('timeout')) {
     console.error('Timeout error - operation took too long. Consider making operations non-blocking.');
   }
 });
