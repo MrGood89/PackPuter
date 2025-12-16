@@ -206,8 +206,9 @@ class MemeputerClient {
           value: base.text?.value || 'GM',
         },
         motion: {
-          ...base.motion,
+          type: base.motion?.type || 'bounce',
           amplitude_px: (base.motion?.amplitude_px || 10) + (i % 3) * 2,
+          period_sec: base.motion?.period_sec,
         },
       };
       blueprints.push(variation);

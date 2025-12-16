@@ -1,6 +1,8 @@
 import { Context } from 'telegraf';
 import fs from 'fs';
+import axios from 'axios';
 import { getSession, setSession, resetSession } from './sessions';
+import { env } from '../env';
 import { isValidImageFile } from '../util/validate';
 import { getTempFilePath, cleanupFile } from '../util/file';
 import { workerClient } from '../services/workerClient';
@@ -57,12 +59,24 @@ export function setupAIFlows(bot: any) {
     await ctx.reply('Choose a theme:', themeKeyboard);
   });
 
-  bot.hears(/^(degen|wholesome|builder)$/, async (ctx: Context) => {
+  bot.hears('degen', async (ctx: Context) => {
     const session = getSession(ctx.from!.id);
     if (session.mode !== 'pack') return;
+    setSession(ctx.from!.id, { theme: 'degen' });
+    await ctx.reply('Send a base image for the pack (PNG preferred).');
+  });
 
-    const theme = ctx.match[0];
-    setSession(ctx.from!.id, { theme });
+  bot.hears('wholesome', async (ctx: Context) => {
+    const session = getSession(ctx.from!.id);
+    if (session.mode !== 'pack') return;
+    setSession(ctx.from!.id, { theme: 'wholesome' });
+    await ctx.reply('Send a base image for the pack (PNG preferred).');
+  });
+
+  bot.hears('builder', async (ctx: Context) => {
+    const session = getSession(ctx.from!.id);
+    if (session.mode !== 'pack') return;
+    setSession(ctx.from!.id, { theme: 'builder' });
     await ctx.reply('Send a base image for the pack (PNG preferred).');
   });
 
@@ -72,7 +86,7 @@ export function setupAIFlows(bot: any) {
   });
 
   bot.on('document', async (ctx: Context) => {
-    if (ctx.message.document?.mime_type) {
+    if ('document' in ctx.message && ctx.message.document?.mime_type) {
       const mimeType = ctx.message.document.mime_type;
       if (isValidImageFile(mimeType)) {
         await handleImageUpload(ctx);
@@ -97,11 +111,11 @@ async function handleAIStickerMaker(ctx: Context) {
   let fileId: string | undefined;
   let mimeType: string | undefined;
 
-  if ('photo' in ctx.message) {
+  if ('photo' in ctx.message && ctx.message.photo) {
     const photos = ctx.message.photo;
     fileId = photos[photos.length - 1].file_id;
     mimeType = 'image/jpeg';
-  } else if ('document' in ctx.message) {
+  } else if ('document' in ctx.message && ctx.message.document) {
     fileId = ctx.message.document.file_id;
     mimeType = ctx.message.document.mime_type;
   }
@@ -113,10 +127,10 @@ async function handleAIStickerMaker(ctx: Context) {
 
   try {
     const file = await ctx.telegram.getFile(fileId);
-    const filePath = await ctx.telegram.downloadFile(
-      file,
-      getTempFilePath('ai_base', 'png')
-    );
+    const filePath = getTempFilePath('ai_base', 'png');
+    const url = `https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+    const response = await axios.get(url, { responseType: 'arraybuffer' });
+    fs.writeFileSync(filePath, Buffer.from(response.data));
 
     setSession(ctx.from!.id, { uploadedFiles: [{ fileId, filePath }] });
 
@@ -199,11 +213,11 @@ async function handleAIGeneratePack(ctx: Context) {
   let fileId: string | undefined;
   let mimeType: string | undefined;
 
-  if ('photo' in ctx.message) {
+  if ('photo' in ctx.message && ctx.message.photo) {
     const photos = ctx.message.photo;
     fileId = photos[photos.length - 1].file_id;
     mimeType = 'image/jpeg';
-  } else if ('document' in ctx.message) {
+  } else if ('document' in ctx.message && ctx.message.document) {
     fileId = ctx.message.document.file_id;
     mimeType = ctx.message.document.mime_type;
   }
@@ -217,10 +231,10 @@ async function handleAIGeneratePack(ctx: Context) {
     await ctx.reply('🎨 Generating sticker pack with AI...');
 
     const file = await ctx.telegram.getFile(fileId);
-    const baseImagePath = await ctx.telegram.downloadFile(
-      file,
-      getTempFilePath('pack_base', 'png')
-    );
+    const baseImagePath = getTempFilePath('pack_base', 'png');
+    const url = `https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+    const response = await axios.get(url, { responseType: 'arraybuffer' });
+    fs.writeFileSync(baseImagePath, Buffer.from(response.data));
 
     const blueprints = await memeputerClient.getBlueprints(
       session.packSize,
