@@ -3,7 +3,7 @@ import fs from 'fs';
 import axios from 'axios';
 import { getSession, setSession, resetSession } from './sessions';
 import { env } from '../env';
-import { doneButton, packActionKeyboard, getAddStickerLink } from './menus';
+import { getAddStickerLink } from './menus';
 import { isValidVideoFile } from '../util/validate';
 import { getTempFilePath, cleanupFile } from '../util/file';
 import { workerClient } from '../services/workerClient';
@@ -27,7 +27,8 @@ export function setupBatchConvertFlow(bot: Telegraf) {
     setSession(ctx.from!.id, { mode: 'batch' });
 
     await ctx.reply(
-      `Send up to 10 GIFs/videos. I'll convert each into Telegram-ready stickers.\nWhen finished, use /done command.`
+      `Send up to 10 GIFs/videos. I'll convert each into Telegram-ready stickers.\nWhen finished, use /done command.`,
+      { reply_markup: { remove_keyboard: true } }
     );
   });
 
@@ -52,7 +53,8 @@ export function setupBatchConvertFlow(bot: Telegraf) {
     await ctx.reply(
       '✅ All files ready! Reply with:\n' +
       '• "new" to create a new pack\n' +
-      '• "existing <pack_name>" to add to existing pack'
+      '• "existing <pack_name>" to add to existing pack',
+      { reply_markup: { remove_keyboard: true } }
     );
   });
 
@@ -228,8 +230,10 @@ async function handleFileUpload(ctx: Context) {
             if (fileCountAfterDelay === fileCountAtCompletion) {
               console.log(`[Batch] Auto-proceeding for user ${ctx.from!.id} with ${fileCountAfterDelay} files`);
               await ctx.reply(
-                '✅ All files converted! Create new pack or add to existing?',
-                packActionKeyboard
+                '✅ All files converted! Reply with:\n' +
+                '• "new" to create a new pack\n' +
+                '• "existing <pack_name>" to add to existing pack',
+                { reply_markup: { remove_keyboard: true } }
               );
             } else {
               console.log(`[Batch] User ${ctx.from!.id} sent more files (${fileCountAfterDelay} vs ${fileCountAtCompletion}), not auto-proceeding yet`);

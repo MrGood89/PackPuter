@@ -7,13 +7,7 @@ import { isValidImageFile } from '../util/validate';
 import { getTempFilePath, cleanupFile } from '../util/file';
 import { workerClient } from '../services/workerClient';
 import { memeputerClient } from '../services/memeputerClient';
-import {
-  templateKeyboard,
-  packActionKeyboard,
-  packSizeKeyboard,
-  themeKeyboard,
-  mainMenu,
-} from './menus';
+import { getAddStickerLink } from './menus';
 import {
   createStickerSet,
   addStickerToSet,
@@ -32,7 +26,8 @@ export function setupAIFlows(bot: any) {
     setSession(ctx.from!.id, { mode: 'ai' });
 
     await ctx.reply(
-      'Send a base image (PNG preferred, JPG also accepted).'
+      'Send a base image (PNG preferred, JPG also accepted).',
+      { reply_markup: { remove_keyboard: true } }
     );
   });
 
@@ -44,7 +39,7 @@ export function setupAIFlows(bot: any) {
     resetSession(ctx.from!.id);
     setSession(ctx.from!.id, { mode: 'pack' });
 
-    await ctx.reply('How many stickers? Reply with "6" or "12"');
+    await ctx.reply('How many stickers? Reply with "6" or "12"', { reply_markup: { remove_keyboard: true } });
   });
 
   // These will be handled by text handler for pack size and theme
@@ -113,7 +108,7 @@ async function handleAIStickerMaker(ctx: Context) {
 
       await ctx.reply(
         'What is this project/coin/mascot about? (vibe, inside jokes, do\'s/don\'ts, colors, keywords)\n\nOr send /skip to skip.',
-        mainMenu
+        { reply_markup: { remove_keyboard: true } }
       );
     } catch (error: any) {
       console.error('Image download error:', error);
@@ -136,7 +131,7 @@ export async function handleProjectContext(ctx: Context, text: string) {
     setSession(ctx.from!.id, { projectContext: text });
   }
 
-  await ctx.reply('Choose a template:', templateKeyboard);
+  await ctx.reply('Choose a template. Reply with one of: GM, GN, LFG, HIGHER, HODL, WAGMI, NGMI, SER, REKT, ALPHA', { reply_markup: { remove_keyboard: true } });
 }
 
 export async function handleTemplate(ctx: Context, template: string) {
@@ -166,7 +161,10 @@ export async function handleTemplate(ctx: Context, template: string) {
       const result = await workerClient.aiRender(baseImage.filePath, blueprintJson);
 
       // Ask which pack to add to
-      await ctx.reply('Create new pack or add to existing?', packActionKeyboard);
+      await ctx.reply('✅ Sticker generated! Reply with:\n' +
+        '• "new" to create a new pack\n' +
+        '• "existing <pack_name>" to add to existing pack',
+        { reply_markup: { remove_keyboard: true } });
 
       // Store the result for pack creation
       session.uploadedFiles = [

@@ -22,7 +22,8 @@ bot.start(async (ctx) => {
     `/pack - AI Generate Pack (6 or 12 stickers)\n` +
     `/done - Finish batch and create pack\n` +
     `/help - Show help\n\n` +
-    `Type a command to get started!`
+    `Type a command to get started!`,
+    { reply_markup: { remove_keyboard: true } }
   );
 });
 
@@ -44,7 +45,8 @@ bot.command('help', async (ctx) => {
     `• ≤ 3 seconds\n` +
     `• ≤ 30 fps\n` +
     `• 512px max dimension\n` +
-    `• ≤ 256 KB`
+    `• ≤ 256 KB`,
+    { reply_markup: { remove_keyboard: true } }
   );
 });
 

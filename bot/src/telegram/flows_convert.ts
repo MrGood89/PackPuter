@@ -7,7 +7,7 @@ import { isValidVideoFile } from '../util/validate';
 import { getTempFilePath, cleanupFile } from '../util/file';
 import { workerClient } from '../services/workerClient';
 import { createJob } from '../services/supabaseClient';
-import { mainMenu } from './menus';
+// Removed menu imports - using commands only
 
 export function setupSingleConvertFlow(bot: any) {
   // Command: /convert
@@ -19,7 +19,8 @@ export function setupSingleConvertFlow(bot: any) {
     setSession(ctx.from!.id, { mode: 'convert' });
 
     await ctx.reply(
-      'Send a GIF or video file to convert to a Telegram sticker.'
+      'Send a GIF or video file to convert to a Telegram sticker.',
+      { reply_markup: { remove_keyboard: true } }
     );
   });
 

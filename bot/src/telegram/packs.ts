@@ -83,13 +83,8 @@ export async function addStickerToSet(
 }
 
 export async function getMyStickerSets(ctx: Context): Promise<string[]> {
-  try {
-    const sets = await ctx.telegram.getStickerSet(''); // This won't work, need alternative
-    // For MVP, return empty array - user will need to manually enter pack name
-    return [];
-  } catch (error) {
-    console.error('Failed to get sticker sets:', error);
-    return [];
-  }
+  // Telegram Bot API doesn't provide a way to list sticker sets created by a bot
+  // Users must manually enter the pack name when adding to existing pack
+  return [];
 }
 
