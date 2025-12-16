@@ -31,7 +31,7 @@ export interface ConversionJob {
   expires_at?: string;
 }
 
-export async function createJob(job: Omit<ConversionJob, 'id' | 'created_at' | 'updated_at'>): Promise<string | null> {
+export async function createJob(job: Omit<ConversionJob, 'id' | 'created_at' | 'updated_at' | 'status'>): Promise<string | null> {
   const supabase = getSupabaseClient();
   if (!supabase) {
     // Fallback: return a fake ID for in-memory processing
@@ -120,7 +120,7 @@ export async function cleanupExpiredJobs(): Promise<number> {
     return 0;
   }
 
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from('conversion_jobs')
     .delete()
     .lt('expires_at', new Date().toISOString());
@@ -130,6 +130,7 @@ export async function cleanupExpiredJobs(): Promise<number> {
     return 0;
   }
 
-  return data?.length || 0;
+  // Delete doesn't return count, so we return 1 to indicate success
+  return 1;
 }
 
