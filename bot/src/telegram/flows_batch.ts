@@ -206,6 +206,14 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
         return;
       }
 
+      console.log('Creating sticker set:', {
+        title: session.packTitle || 'My Pack',
+        shortName,
+        firstFile: firstFile.filePath,
+        fileExists: fs.existsSync(firstFile.filePath),
+        emoji,
+      });
+
       const created = await createStickerSet(
         ctx,
         session.packTitle || 'My Pack',
@@ -215,15 +223,24 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
       );
 
       if (!created) {
-        await ctx.reply('❌ Failed to create sticker set. It may already exist.');
+        console.error('createStickerSet returned false');
+        await ctx.reply('❌ Failed to create sticker set. It may already exist. Check bot logs for details.');
         return;
       }
+
+      console.log('Sticker set created successfully:', shortName);
 
       // Add remaining stickers
       for (let i = 1; i < session.uploadedFiles.length; i++) {
         const file = session.uploadedFiles[i];
         if (file.filePath && fs.existsSync(file.filePath)) {
-          await addStickerToSet(ctx, shortName, file.filePath, emoji);
+          console.log(`Adding sticker ${i + 1}/${session.uploadedFiles.length} to pack:`, file.filePath);
+          const added = await addStickerToSet(ctx, shortName, file.filePath, emoji);
+          if (!added) {
+            console.error(`Failed to add sticker ${i + 1} to pack`);
+          }
+        } else {
+          console.error(`Sticker ${i + 1} file not found:`, file.filePath);
         }
       }
 
@@ -236,9 +253,16 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
       if (file.filePath) cleanupFile(file.filePath);
     });
     resetSession(ctx.from!.id);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Pack creation error:', error);
-    await ctx.reply('❌ Failed to create pack.');
+    console.error('Error stack:', error.stack);
+    console.error('Error details:', {
+      mode: session.mode,
+      packTitle: session.packTitle,
+      emoji: session.emoji,
+      filesCount: session.uploadedFiles.length,
+    });
+    await ctx.reply('❌ Failed to create pack. Check bot logs for details.');
   }
 }
 

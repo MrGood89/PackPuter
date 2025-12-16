@@ -27,8 +27,18 @@ export async function createStickerSet(
     return true;
   } catch (error: any) {
     console.error('Failed to create sticker set:', error);
+    console.error('Error details:', {
+      title,
+      shortName,
+      emoji,
+      filePath: firstStickerPath,
+      fileExists: fs.existsSync(firstStickerPath),
+      errorMessage: error.message,
+      errorCode: error.code,
+    });
     if (error.response) {
-      console.error('Telegram API error:', error.response.description);
+      console.error('Telegram API error response:', JSON.stringify(error.response, null, 2));
+      console.error('Telegram API error description:', error.response.description);
     }
     return false;
   }
@@ -56,8 +66,17 @@ export async function addStickerToSet(
     return true;
   } catch (error: any) {
     console.error('Failed to add sticker to set:', error);
+    console.error('Error details:', {
+      setName,
+      emoji,
+      filePath: stickerPath,
+      fileExists: fs.existsSync(stickerPath),
+      errorMessage: error.message,
+      errorCode: error.code,
+    });
     if (error.response) {
-      console.error('Telegram API error:', error.response.description);
+      console.error('Telegram API error response:', JSON.stringify(error.response, null, 2));
+      console.error('Telegram API error description:', error.response.description);
     }
     return false;
   }
