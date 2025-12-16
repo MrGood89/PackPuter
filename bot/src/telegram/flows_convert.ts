@@ -6,6 +6,7 @@ import { env } from '../env';
 import { isValidVideoFile } from '../util/validate';
 import { getTempFilePath, cleanupFile } from '../util/file';
 import { workerClient } from '../services/workerClient';
+import { createJob } from '../services/supabaseClient';
 import { mainMenu } from './menus';
 
 export function setupSingleConvertFlow(bot: any) {
@@ -57,44 +58,46 @@ async function handleSingleFile(ctx: Context) {
     return;
   }
 
-  // Send immediate response to avoid timeout
-  const processingMsg = await ctx.reply('⏳ Converting...');
-  
-  // Process asynchronously to avoid blocking the handler
-  setImmediate(async () => {
-    try {
-      const file = await ctx.telegram.getFile(fileId);
-      const filePath = getTempFilePath('convert', 'tmp');
-      const url = `https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
-      
-      // Download with timeout
-      const response = await axios.get(url, { 
-        responseType: 'arraybuffer',
-        timeout: 120000 // 2 minutes for download
-      });
-      fs.writeFileSync(filePath, Buffer.from(response.data));
-
-      const result = await workerClient.convert(filePath);
-
-      // Send the converted sticker
-      await ctx.replyWithVideo(
-        { source: fs.createReadStream(result.output_path) },
-        {
-          caption: `✅ Converted: ${result.duration.toFixed(1)}s · ${result.width}x${result.height}px · ${result.kb}KB`,
-        }
-      );
-
-      cleanupFile(filePath);
-      cleanupFile(result.output_path);
-      resetSession(ctx.from!.id);
-    } catch (error: any) {
-      console.error('Conversion error:', error);
-      try {
-        await ctx.reply('❌ Failed to convert file.');
-      } catch (replyError) {
-        console.error('Failed to send error message:', replyError);
-      }
-    }
+  // Create job and return immediately to avoid timeout
+  const jobId = await createJob({
+    user_id: ctx.from!.id,
+    chat_id: ctx.chat!.id,
+    job_type: 'convert',
+    file_id: fileId,
   });
+
+  if (!jobId) {
+    // Fallback: process immediately if Supabase not available
+    await ctx.reply('⏳ Converting...');
+    setImmediate(async () => {
+      try {
+        const file = await ctx.telegram.getFile(fileId);
+        const filePath = getTempFilePath('convert', 'tmp');
+        const url = `https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+        const response = await axios.get(url, { 
+          responseType: 'arraybuffer',
+          timeout: 120000
+        });
+        fs.writeFileSync(filePath, Buffer.from(response.data));
+        const result = await workerClient.convert(filePath);
+        await ctx.replyWithVideo(
+          { source: fs.createReadStream(result.output_path) },
+          {
+            caption: `✅ Converted: ${result.duration.toFixed(1)}s · ${result.width}x${result.height}px · ${result.kb}KB`,
+          }
+        );
+        cleanupFile(filePath);
+        cleanupFile(result.output_path);
+        resetSession(ctx.from!.id);
+      } catch (error: any) {
+        console.error('Conversion error:', error);
+        await ctx.reply('❌ Failed to convert file.');
+      }
+    });
+  } else {
+    // Job created successfully - processor will handle it
+    await ctx.reply('⏳ Processing your file... I\'ll send it when ready!');
+    resetSession(ctx.from!.id);
+  }
 }
 

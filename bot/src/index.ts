@@ -5,6 +5,7 @@ import { setupBatchConvertFlow, handlePackTitle, handlePackEmoji, handleExisting
 import { setupSingleConvertFlow } from './telegram/flows_convert';
 import { setupAIFlows, handleProjectContext, handleTemplate } from './telegram/flows_ai';
 import { getSession, setSession } from './telegram/sessions';
+import { startJobProcessor, stopJobProcessor } from './services/jobProcessor';
 
 const bot = new Telegraf(env.TELEGRAM_BOT_TOKEN);
 
@@ -109,12 +110,20 @@ bot.catch((err, ctx) => {
 // Start bot
 bot.launch().then(() => {
   console.log('PackPuter bot is running!');
+  // Start job processor for async operations
+  startJobProcessor(bot);
 }).catch((error) => {
   console.error('Failed to start bot:', error);
   process.exit(1);
 });
 
 // Graceful shutdown
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+process.once('SIGINT', () => {
+  stopJobProcessor();
+  bot.stop('SIGINT');
+});
+process.once('SIGTERM', () => {
+  stopJobProcessor();
+  bot.stop('SIGTERM');
+});
 
