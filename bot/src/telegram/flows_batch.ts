@@ -215,7 +215,7 @@ async function handleFileUpload(ctx: Context) {
         console.error('Failed to send error message:', replyError);
       }
     }
-  }, 0);
+  });
 }
 
 export async function handlePackTitle(ctx: Context, title: string) {
