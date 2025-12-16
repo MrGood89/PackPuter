@@ -1,6 +1,6 @@
 import os
 import json
-import tempfile
+import time
 import shutil
 import subprocess
 from PIL import Image, ImageDraw, ImageFont
@@ -63,8 +63,9 @@ def render_animation(
     sparkles = effects.get('sparkles', False)
     sparkle_count = effects.get('sparkle_count', 6)
     
-    # Create frames directory
-    frames_dir = tempfile.mkdtemp()
+    # Create frames directory in shared volume
+    frames_dir = '/tmp/packputer/frames_' + os.path.basename(base_image_path).replace('.', '_').replace('/', '_') + '_' + str(int(time.time()))
+    os.makedirs(frames_dir, exist_ok=True)
     frame_paths = []
     
     try:
@@ -173,8 +174,8 @@ def render_animation(
             frame_paths.append(frame_path)
         
         # Encode to WEBM using ffmpeg
-        # First create a temporary video from frames
-        temp_video = os.path.join(frames_dir, 'temp_video.webm')
+        # First create a temporary video from frames in shared volume
+        temp_video = '/tmp/packputer/temp_video_' + os.path.basename(base_image_path).replace('.', '_').replace('/', '_') + '_' + str(int(time.time())) + '.webm'
         
         # Use ffmpeg to create video from frames
         cmd = [
@@ -190,17 +191,24 @@ def render_animation(
         ]
         subprocess.run(cmd, check=True, capture_output=True)
         
-        # Now fit to limits
+        # Now fit to limits (this will save to /tmp/packputer)
         final_path, metadata = fit_to_limits(temp_video, duration, 'transparent')
         
-        # Move to output path
-        if final_path != output_path:
+        # Ensure output is in shared volume
+        if not output_path.startswith('/tmp/packputer'):
+            shared_output = '/tmp/packputer/' + os.path.basename(output_path)
+            if final_path != shared_output:
+                shutil.move(final_path, shared_output)
+            final_path = shared_output
+        elif final_path != output_path:
             shutil.move(final_path, output_path)
+            final_path = output_path
         
+        # Return the final path (should be in /tmp/packputer)
         return metadata
         
     finally:
-        # Cleanup frames
+        # Cleanup frames (but keep output file)
         if os.path.exists(frames_dir):
             shutil.rmtree(frames_dir, ignore_errors=True)
 

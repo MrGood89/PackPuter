@@ -13,10 +13,13 @@ async def convert_file(
     # Save uploaded file temporarily
     temp_input = None
     try:
-        # Create temp file
+        # Create temp file in shared volume
         suffix = os.path.splitext(file.filename or 'input')[1] or '.tmp'
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            temp_input = tmp.name
+        temp_dir = '/tmp/packputer'
+        os.makedirs(temp_dir, exist_ok=True)
+        import secrets
+        temp_input = os.path.join(temp_dir, f'input_{secrets.token_hex(4)}{suffix}')
+        with open(temp_input, 'wb') as tmp:
             shutil.copyfileobj(file.file, tmp)
         
         # Convert

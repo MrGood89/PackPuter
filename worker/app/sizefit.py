@@ -37,7 +37,9 @@ def fit_to_limits(
     best_size = float('inf')
     best_metadata = {}
     
-    temp_dir = tempfile.gettempdir()
+    # Use shared volume for bot access
+    temp_dir = '/tmp/packputer'
+    os.makedirs(temp_dir, exist_ok=True)
     
     for side in side_options:
         if side > TARGET_SIDE:

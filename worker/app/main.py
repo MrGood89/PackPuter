@@ -5,7 +5,6 @@ from typing import List, Optional
 from .convert import convert_file
 from .batch import batch_convert_files
 from .render import render_animation
-import tempfile
 
 app = FastAPI(title="PackPuter Worker")
 
@@ -70,15 +69,20 @@ async def ai_render_endpoint(
         temp_input = None
         temp_output = None
         try:
+            # Use shared volume for bot access
+            temp_dir = '/tmp/packputer'
+            os.makedirs(temp_dir, exist_ok=True)
+            import secrets
+            
             suffix = os.path.splitext(base_image.filename or 'input')[1] or '.png'
-            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                temp_input = tmp.name
+            temp_input = os.path.join(temp_dir, f'ai_input_{secrets.token_hex(4)}{suffix}')
+            with open(temp_input, 'wb') as tmp:
                 await base_image.seek(0)
                 content = await base_image.read()
                 tmp.write(content)
             
-            # Create output path
-            temp_output = tempfile.NamedTemporaryFile(delete=False, suffix='.webm').name
+            # Create output path in shared volume
+            temp_output = os.path.join(temp_dir, f'ai_output_{secrets.token_hex(4)}.webm')
             
             # Render
             metadata = render_animation(temp_input, blueprint_json, temp_output)

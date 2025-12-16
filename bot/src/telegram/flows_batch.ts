@@ -201,8 +201,15 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
 
       // Create pack with first sticker
       const firstFile = session.uploadedFiles[0];
+      console.log('Checking first file:', {
+        filePath: firstFile.filePath,
+        exists: firstFile.filePath ? fs.existsSync(firstFile.filePath) : false,
+        allFiles: session.uploadedFiles.map(f => ({ path: f.filePath, exists: f.filePath ? fs.existsSync(f.filePath) : false }))
+      });
+      
       if (!firstFile.filePath || !fs.existsSync(firstFile.filePath)) {
-        await ctx.reply('❌ First sticker file not found.');
+        console.error('First sticker file not found:', firstFile.filePath);
+        await ctx.reply('❌ First sticker file not found. Check bot logs for details.');
         return;
       }
 
