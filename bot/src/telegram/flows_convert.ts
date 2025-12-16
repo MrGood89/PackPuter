@@ -24,7 +24,7 @@ export function setupSingleConvertFlow(bot: any) {
   });
 
   bot.on('document', async (ctx: Context) => {
-    if ('document' in ctx.message && ctx.message.document?.mime_type) {
+    if (ctx.message && 'document' in ctx.message && ctx.message.document?.mime_type) {
       await handleSingleFile(ctx);
     }
   });
@@ -41,13 +41,13 @@ async function handleSingleFile(ctx: Context) {
   let fileId: string | undefined;
   let mimeType: string | undefined;
 
-  if ('video' in ctx.message && ctx.message.video) {
+  if (ctx.message && 'video' in ctx.message && ctx.message.video) {
     fileId = ctx.message.video.file_id;
     mimeType = ctx.message.video.mime_type;
-  } else if ('document' in ctx.message && ctx.message.document) {
+  } else if (ctx.message && 'document' in ctx.message && ctx.message.document) {
     fileId = ctx.message.document.file_id;
     mimeType = ctx.message.document.mime_type;
-  } else if ('animation' in ctx.message && ctx.message.animation) {
+  } else if (ctx.message && 'animation' in ctx.message && ctx.message.animation) {
     fileId = (ctx.message.animation as any).file_id;
     mimeType = (ctx.message.animation as any).mime_type || 'video/gif';
   }

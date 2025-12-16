@@ -15,12 +15,13 @@ export async function createStickerSet(
       source: fs.createReadStream(firstStickerPath) as unknown as InputFile,
     };
 
-    await ctx.telegram.createNewStickerSet(
+    await (ctx.telegram as any).createNewStickerSet(
       ctx.from!.id,
       shortName,
       title,
       sticker,
-      emoji
+      emoji,
+      { sticker_type: 'video' }
     );
 
     return true;
@@ -44,7 +45,13 @@ export async function addStickerToSet(
       source: fs.createReadStream(stickerPath) as unknown as InputFile,
     };
 
-    await ctx.telegram.addStickerToSet(ctx.from!.id, setName, sticker, emoji);
+    await (ctx.telegram as any).addStickerToSet(
+      ctx.from!.id,
+      setName,
+      sticker,
+      emoji,
+      { sticker_type: 'video' }
+    );
 
     return true;
   } catch (error: any) {

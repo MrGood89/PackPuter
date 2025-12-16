@@ -21,7 +21,6 @@ import {
 } from './packs';
 import { getAddStickerLink } from './menus';
 import { generateShortName } from '../util/slug';
-import { env } from '../env';
 
 export function setupAIFlows(bot: any) {
   // AI Sticker Maker
@@ -86,7 +85,7 @@ export function setupAIFlows(bot: any) {
   });
 
   bot.on('document', async (ctx: Context) => {
-    if ('document' in ctx.message && ctx.message.document?.mime_type) {
+    if (ctx.message && 'document' in ctx.message && ctx.message.document?.mime_type) {
       const mimeType = ctx.message.document.mime_type;
       if (isValidImageFile(mimeType)) {
         await handleImageUpload(ctx);
@@ -111,11 +110,11 @@ async function handleAIStickerMaker(ctx: Context) {
   let fileId: string | undefined;
   let mimeType: string | undefined;
 
-  if ('photo' in ctx.message && ctx.message.photo) {
+  if (ctx.message && 'photo' in ctx.message && ctx.message.photo) {
     const photos = ctx.message.photo;
     fileId = photos[photos.length - 1].file_id;
     mimeType = 'image/jpeg';
-  } else if ('document' in ctx.message && ctx.message.document) {
+  } else if (ctx.message && 'document' in ctx.message && ctx.message.document) {
     fileId = ctx.message.document.file_id;
     mimeType = ctx.message.document.mime_type;
   }
@@ -213,11 +212,11 @@ async function handleAIGeneratePack(ctx: Context) {
   let fileId: string | undefined;
   let mimeType: string | undefined;
 
-  if ('photo' in ctx.message && ctx.message.photo) {
+  if (ctx.message && 'photo' in ctx.message && ctx.message.photo) {
     const photos = ctx.message.photo;
     fileId = photos[photos.length - 1].file_id;
     mimeType = 'image/jpeg';
-  } else if ('document' in ctx.message && ctx.message.document) {
+  } else if (ctx.message && 'document' in ctx.message && ctx.message.document) {
     fileId = ctx.message.document.file_id;
     mimeType = ctx.message.document.mime_type;
   }
