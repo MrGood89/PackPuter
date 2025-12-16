@@ -10,13 +10,16 @@ import { createJob } from '../services/supabaseClient';
 import { mainMenu } from './menus';
 
 export function setupSingleConvertFlow(bot: any) {
-  bot.hears('🎞️ Single Convert', async (ctx: Context) => {
+  // Command: /convert
+  bot.command('convert', async (ctx: Context) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [Convert] /convert command received from user ${ctx.from!.id}`);
+    
     resetSession(ctx.from!.id);
     setSession(ctx.from!.id, { mode: 'convert' });
 
     await ctx.reply(
-      'Send a GIF or video file to convert to a Telegram sticker.',
-      mainMenu
+      'Send a GIF or video file to convert to a Telegram sticker.'
     );
   });
 

@@ -17,18 +17,24 @@ import { generateShortName } from '../util/slug';
 const MAX_BATCH_SIZE = 10;
 
 export function setupBatchConvertFlow(bot: Telegraf) {
-  bot.hears('🧰 Batch Convert (≤10)', async (ctx) => {
+  // Command: /batch
+  bot.command('batch', async (ctx) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [Batch] /batch command received from user ${ctx.from!.id}`);
+    
     const session = getSession(ctx.from!.id);
     resetSession(ctx.from!.id);
     setSession(ctx.from!.id, { mode: 'batch' });
 
     await ctx.reply(
-      `Send up to 10 GIFs/videos. I'll convert each into Telegram-ready stickers.\nWhen finished, press ✅ Done.`,
-      doneButton
+      `Send up to 10 GIFs/videos. I'll convert each into Telegram-ready stickers.\nWhen finished, use /done command.`
     );
   });
 
-  bot.hears('✅ Done', async (ctx) => {
+  // Command: /done
+  bot.command('done', async (ctx) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [Batch] /done command received from user ${ctx.from!.id}`);
     const session = getSession(ctx.from!.id);
     if (session.mode !== 'batch' || session.uploadedFiles.length === 0) {
       await ctx.reply('No files to process. Use Batch Convert to start.');
@@ -44,38 +50,9 @@ export function setupBatchConvertFlow(bot: Telegraf) {
     }
 
     await ctx.reply(
-      '✅ All files ready! Create new pack or add to existing?',
-      packActionKeyboard
-    );
-  });
-
-  bot.hears('📦 Create New Pack', async (ctx) => {
-    const session = getSession(ctx.from!.id);
-    if (session.mode !== 'batch') return;
-
-    setSession(ctx.from!.id, { chosenPackAction: 'new' });
-    await ctx.reply('What should the pack title be?');
-  });
-
-  bot.hears('➕ Add to Existing', async (ctx) => {
-    const session = getSession(ctx.from!.id);
-    if (session.mode !== 'batch') return;
-
-    const packs = await getMyStickerSets(ctx);
-    if (packs.length === 0) {
-      await ctx.reply(
-        'No existing packs found. Creating a new pack instead.',
-        packActionKeyboard
-      );
-      setSession(ctx.from!.id, { chosenPackAction: 'new' });
-      await ctx.reply('What should the pack title be?');
-      return;
-    }
-
-    setSession(ctx.from!.id, { chosenPackAction: 'existing' });
-    const packList = packs.map((p, i) => `${i + 1}. ${p}`).join('\n');
-    await ctx.reply(
-      `Which pack? Reply with the pack name:\n\n${packList}`
+      '✅ All files ready! Reply with:\n' +
+      '• "new" to create a new pack\n' +
+      '• "existing <pack_name>" to add to existing pack'
     );
   });
 

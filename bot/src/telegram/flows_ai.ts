@@ -23,61 +23,31 @@ import { getAddStickerLink } from './menus';
 import { generateShortName } from '../util/slug';
 
 export function setupAIFlows(bot: any) {
-  // AI Sticker Maker
-  bot.hears('✨ AI Sticker Maker', async (ctx: Context) => {
+  // Command: /ai
+  bot.command('ai', async (ctx: Context) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [AI] /ai command received from user ${ctx.from!.id}`);
+    
     resetSession(ctx.from!.id);
     setSession(ctx.from!.id, { mode: 'ai' });
 
     await ctx.reply(
-      'Send a base image (PNG preferred, JPG also accepted).',
-      mainMenu
+      'Send a base image (PNG preferred, JPG also accepted).'
     );
   });
 
-  // AI Generate Pack
-  bot.hears('🔥 AI Generate Pack', async (ctx: Context) => {
+  // Command: /pack
+  bot.command('pack', async (ctx: Context) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [AI Pack] /pack command received from user ${ctx.from!.id}`);
+    
     resetSession(ctx.from!.id);
     setSession(ctx.from!.id, { mode: 'pack' });
 
-    await ctx.reply('How many stickers? (6 or 12)', packSizeKeyboard);
+    await ctx.reply('How many stickers? Reply with "6" or "12"');
   });
 
-  bot.hears('6 stickers', async (ctx: Context) => {
-    const session = getSession(ctx.from!.id);
-    if (session.mode !== 'pack') return;
-
-    setSession(ctx.from!.id, { packSize: 6 });
-    await ctx.reply('Choose a theme:', themeKeyboard);
-  });
-
-  bot.hears('12 stickers', async (ctx: Context) => {
-    const session = getSession(ctx.from!.id);
-    if (session.mode !== 'pack') return;
-
-    setSession(ctx.from!.id, { packSize: 12 });
-    await ctx.reply('Choose a theme:', themeKeyboard);
-  });
-
-  bot.hears('degen', async (ctx: Context) => {
-    const session = getSession(ctx.from!.id);
-    if (session.mode !== 'pack') return;
-    setSession(ctx.from!.id, { theme: 'degen' });
-    await ctx.reply('Send a base image for the pack (PNG preferred).');
-  });
-
-  bot.hears('wholesome', async (ctx: Context) => {
-    const session = getSession(ctx.from!.id);
-    if (session.mode !== 'pack') return;
-    setSession(ctx.from!.id, { theme: 'wholesome' });
-    await ctx.reply('Send a base image for the pack (PNG preferred).');
-  });
-
-  bot.hears('builder', async (ctx: Context) => {
-    const session = getSession(ctx.from!.id);
-    if (session.mode !== 'pack') return;
-    setSession(ctx.from!.id, { theme: 'builder' });
-    await ctx.reply('Send a base image for the pack (PNG preferred).');
-  });
+  // These will be handled by text handler for pack size and theme
 
   // Handle image uploads for AI flows
   bot.on('photo', async (ctx: Context) => {
