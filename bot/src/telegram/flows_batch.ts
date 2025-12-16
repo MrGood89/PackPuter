@@ -96,20 +96,20 @@ export function setupBatchConvertFlow(bot: Telegraf) {
 }
 
 async function handleFileUpload(ctx: Context) {
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] [Batch] ===== handleFileUpload START =====`);
-  console.log(`[${timestamp}] [Batch] User ID: ${ctx.from!.id}, Chat ID: ${ctx.chat?.id}`);
+  const startTimestamp = new Date().toISOString();
+  console.log(`[${startTimestamp}] [Batch] ===== handleFileUpload START =====`);
+  console.log(`[${startTimestamp}] [Batch] User ID: ${ctx.from!.id}, Chat ID: ${ctx.chat?.id}`);
   
   const session = getSession(ctx.from!.id);
-  console.log(`[${timestamp}] [Batch] Session mode: ${session.mode}, Current file count: ${session.uploadedFiles.length}`);
+  console.log(`[${startTimestamp}] [Batch] Session mode: ${session.mode}, Current file count: ${session.uploadedFiles.length}`);
   
   if (session.mode !== 'batch') {
-    console.log(`[${timestamp}] [Batch] User ${ctx.from!.id} not in batch mode, mode: ${session.mode} - EXITING`);
+    console.log(`[${startTimestamp}] [Batch] User ${ctx.from!.id} not in batch mode, mode: ${session.mode} - EXITING`);
     return;
   }
 
   if (session.uploadedFiles.length >= MAX_BATCH_SIZE) {
-    console.log(`[${timestamp}] [Batch] Batch limit reached (${session.uploadedFiles.length}/${MAX_BATCH_SIZE})`);
+    console.log(`[${startTimestamp}] [Batch] Batch limit reached (${session.uploadedFiles.length}/${MAX_BATCH_SIZE})`);
     await ctx.reply(
       `Batch limit is 10. Processing will start automatically...`
     );
@@ -136,9 +136,9 @@ async function handleFileUpload(ctx: Context) {
   }
 
   // Send immediate response WITHOUT awaiting - this allows handler to return immediately
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] [Batch] Starting processing for fileId: ${fileId}, mimeType: ${mimeType}`);
-  ctx.reply('⏳ Processing...').catch(err => console.error(`[${timestamp}] [Batch] Failed to send processing message:`, err));
+  const uploadTimestamp = new Date().toISOString();
+  console.log(`[${uploadTimestamp}] [Batch] Starting processing for fileId: ${fileId}, mimeType: ${mimeType}`);
+  ctx.reply('⏳ Processing...').catch(err => console.error(`[${uploadTimestamp}] [Batch] Failed to send processing message:`, err));
   
   // Process in background - use setImmediate to defer execution
   // This allows the handler to return immediately
@@ -282,8 +282,8 @@ async function handleFileUpload(ctx: Context) {
     }
     console.log(`[${processTimestamp}] [Batch] ===== Background processing END =====`);
   });
-  console.log(`[${timestamp}] [Batch] Handler returned immediately, processing in background`);
-  console.log(`[${timestamp}] [Batch] ===== handleFileUpload END =====`);
+  console.log(`[${startTimestamp}] [Batch] Handler returned immediately, processing in background`);
+  console.log(`[${startTimestamp}] [Batch] ===== handleFileUpload END =====`);
 }
 
 export async function handlePackTitle(ctx: Context, title: string) {
@@ -295,12 +295,12 @@ export async function handlePackTitle(ctx: Context, title: string) {
 }
 
 export async function handlePackEmoji(ctx: Context, emoji: string) {
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] [Pack Creation] ===== handlePackEmoji START =====`);
-  console.log(`[${timestamp}] [Pack Creation] User: ${ctx.from!.id}, Emoji: ${emoji}`);
+  const packTimestamp = new Date().toISOString();
+  console.log(`[${packTimestamp}] [Pack Creation] ===== handlePackEmoji START =====`);
+  console.log(`[${packTimestamp}] [Pack Creation] User: ${ctx.from!.id}, Emoji: ${emoji}`);
   
   const session = getSession(ctx.from!.id);
-  console.log(`[${timestamp}] [Pack Creation] Session:`, {
+  console.log(`[${packTimestamp}] [Pack Creation] Session:`, {
     mode: session.mode,
     fileCount: session.uploadedFiles.length,
     packTitle: session.packTitle,
@@ -309,12 +309,12 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
   });
   
   if ((session.mode !== 'batch' && session.mode !== 'pack') || session.uploadedFiles.length === 0) {
-    console.log(`[${timestamp}] [Pack Creation] Invalid session state - EXITING`);
+    console.log(`[${packTimestamp}] [Pack Creation] Invalid session state - EXITING`);
     return;
   }
 
   if (!emoji || emoji.length > 2) {
-    console.log(`[${timestamp}] [Pack Creation] Invalid emoji - EXITING`);
+    console.log(`[${packTimestamp}] [Pack Creation] Invalid emoji - EXITING`);
     await ctx.reply('Please send a single emoji.');
     return;
   }
@@ -353,9 +353,9 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
       const firstFile = session.uploadedFiles[0];
       
       // Verify all files exist before proceeding
-      console.log(`[${timestamp}] [Pack Creation] Step 1: Verifying all files exist...`);
-      console.log(`[${timestamp}] [Pack Creation] Total files to check: ${session.uploadedFiles.length}`);
-      console.log(`[${timestamp}] [Pack Creation] First file:`, {
+      console.log(`[${packTimestamp}] [Pack Creation] Step 1: Verifying all files exist...`);
+      console.log(`[${packTimestamp}] [Pack Creation] Total files to check: ${session.uploadedFiles.length}`);
+      console.log(`[${packTimestamp}] [Pack Creation] First file:`, {
         fileId: firstFile.fileId,
         filePath: firstFile.filePath,
         exists: firstFile.filePath ? fs.existsSync(firstFile.filePath) : false
@@ -372,13 +372,13 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
           sizeKB: Math.round(size / 1024)
         };
       });
-      console.log(`[${timestamp}] [Pack Creation] File checks:`, JSON.stringify(fileChecks, null, 2));
+      console.log(`[${packTimestamp}] [Pack Creation] File checks:`, JSON.stringify(fileChecks, null, 2));
       
       const missingFiles = session.uploadedFiles.filter(f => !f.filePath || !fs.existsSync(f.filePath));
       if (missingFiles.length > 0) {
-        console.error(`[${timestamp}] [Pack Creation] ERROR: ${missingFiles.length} file(s) missing!`);
-        console.error(`[${timestamp}] [Pack Creation] Missing files:`, missingFiles.map(f => f.filePath));
-        console.error(`[${timestamp}] [Pack Creation] Temp directory check:`, {
+        console.error(`[${packTimestamp}] [Pack Creation] ERROR: ${missingFiles.length} file(s) missing!`);
+        console.error(`[${packTimestamp}] [Pack Creation] Missing files:`, missingFiles.map(f => f.filePath));
+        console.error(`[${packTimestamp}] [Pack Creation] Temp directory check:`, {
           tempDir: '/tmp/packputer',
           exists: fs.existsSync('/tmp/packputer'),
           files: fs.existsSync('/tmp/packputer') ? fs.readdirSync('/tmp/packputer').slice(0, 30) : []
@@ -387,7 +387,7 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
         return;
       }
       
-      console.log(`[${timestamp}] [Pack Creation] All files verified!`);
+      console.log(`[${packTimestamp}] [Pack Creation] All files verified!`);
       
       if (!firstFile.filePath || !fs.existsSync(firstFile.filePath)) {
         console.error('[Pack Creation] First sticker file not found:', firstFile.filePath);
