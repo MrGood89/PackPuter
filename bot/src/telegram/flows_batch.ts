@@ -96,8 +96,12 @@ export function setupBatchConvertFlow(bot: Telegraf) {
 }
 
 async function handleFileUpload(ctx: Context) {
+  console.log(`[Batch] handleFileUpload called for user ${ctx.from!.id}`);
   const session = getSession(ctx.from!.id);
-  if (session.mode !== 'batch') return;
+  if (session.mode !== 'batch') {
+    console.log(`[Batch] User ${ctx.from!.id} not in batch mode, mode: ${session.mode}`);
+    return;
+  }
 
   if (session.uploadedFiles.length >= MAX_BATCH_SIZE) {
     await ctx.reply(
@@ -125,11 +129,12 @@ async function handleFileUpload(ctx: Context) {
     return;
   }
 
-  // Send immediate response and return to avoid timeout
-  await ctx.reply('⏳ Processing...');
+  // Send immediate response WITHOUT awaiting - this allows handler to return immediately
+  ctx.reply('⏳ Processing...').catch(err => console.error('Failed to send processing message:', err));
   
-  // Process in background - use setTimeout(0) to truly defer execution
-  setTimeout(async () => {
+  // Process in background - use setImmediate to defer execution
+  // This allows the handler to return immediately
+  setImmediate(async () => {
     try {
       const file = await ctx.telegram.getFile(fileId);
       const filePath = getTempFilePath('batch', 'tmp');
@@ -174,20 +179,27 @@ async function handleFileUpload(ctx: Context) {
 
       // Auto-proceed after a short delay to allow user to send more files
       // If no new files arrive within 3 seconds, proceed automatically
+      const fileCountAtCompletion = currentSession.uploadedFiles.length;
       setTimeout(async () => {
-        const finalSession = getSession(ctx.from!.id);
-        // Only auto-proceed if still in batch mode and we have files
-        if (finalSession.mode === 'batch' && finalSession.uploadedFiles.length > 0) {
-          // Check if user sent more files (compare file count)
-          const fileCountAfterDelay = finalSession.uploadedFiles.length;
-          // If file count matches what we had, user hasn't sent more - proceed
-          if (fileCountAfterDelay === currentSession.uploadedFiles.length) {
-            console.log(`[Batch] Auto-proceeding for user ${ctx.from!.id} with ${fileCountAfterDelay} files`);
-            await ctx.reply(
-              '✅ All files converted! Create new pack or add to existing?',
-              packActionKeyboard
-            );
+        try {
+          const finalSession = getSession(ctx.from!.id);
+          // Only auto-proceed if still in batch mode and we have files
+          if (finalSession.mode === 'batch' && finalSession.uploadedFiles.length > 0) {
+            // Check if user sent more files (compare file count)
+            const fileCountAfterDelay = finalSession.uploadedFiles.length;
+            // If file count matches what we had, user hasn't sent more - proceed
+            if (fileCountAfterDelay === fileCountAtCompletion) {
+              console.log(`[Batch] Auto-proceeding for user ${ctx.from!.id} with ${fileCountAfterDelay} files`);
+              await ctx.reply(
+                '✅ All files converted! Create new pack or add to existing?',
+                packActionKeyboard
+              );
+            } else {
+              console.log(`[Batch] User ${ctx.from!.id} sent more files (${fileCountAfterDelay} vs ${fileCountAtCompletion}), not auto-proceeding yet`);
+            }
           }
+        } catch (error: any) {
+          console.error(`[Batch] Error in auto-proceed for user ${ctx.from!.id}:`, error);
         }
       }, 3000); // 3 second delay
     } catch (error: any) {

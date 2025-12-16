@@ -112,6 +112,7 @@ bot.launch().then(() => {
   console.log('PackPuter bot is running!');
   // Start job processor for async operations
   startJobProcessor(bot);
+  console.log('Job processor started');
 }).catch((error) => {
   console.error('Failed to start bot:', error);
   process.exit(1);
