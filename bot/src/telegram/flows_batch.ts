@@ -96,18 +96,24 @@ export function setupBatchConvertFlow(bot: Telegraf) {
 }
 
 async function handleFileUpload(ctx: Context) {
-  console.log(`[Batch] handleFileUpload called for user ${ctx.from!.id}`);
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] [Batch] ===== handleFileUpload START =====`);
+  console.log(`[${timestamp}] [Batch] User ID: ${ctx.from!.id}, Chat ID: ${ctx.chat?.id}`);
+  
   const session = getSession(ctx.from!.id);
+  console.log(`[${timestamp}] [Batch] Session mode: ${session.mode}, Current file count: ${session.uploadedFiles.length}`);
+  
   if (session.mode !== 'batch') {
-    console.log(`[Batch] User ${ctx.from!.id} not in batch mode, mode: ${session.mode}`);
+    console.log(`[${timestamp}] [Batch] User ${ctx.from!.id} not in batch mode, mode: ${session.mode} - EXITING`);
     return;
   }
 
   if (session.uploadedFiles.length >= MAX_BATCH_SIZE) {
+    console.log(`[${timestamp}] [Batch] Batch limit reached (${session.uploadedFiles.length}/${MAX_BATCH_SIZE})`);
     await ctx.reply(
-      `Batch limit is 10. Press ✅ Done or start a new batch.`
+      `Batch limit is 10. Processing will start automatically...`
     );
-    return;
+    // Still process the file, but will auto-proceed after conversion
   }
 
   let fileId: string | undefined;
@@ -130,14 +136,28 @@ async function handleFileUpload(ctx: Context) {
   }
 
   // Send immediate response WITHOUT awaiting - this allows handler to return immediately
-  ctx.reply('⏳ Processing...').catch(err => console.error('Failed to send processing message:', err));
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] [Batch] Starting processing for fileId: ${fileId}, mimeType: ${mimeType}`);
+  ctx.reply('⏳ Processing...').catch(err => console.error(`[${timestamp}] [Batch] Failed to send processing message:`, err));
   
   // Process in background - use setImmediate to defer execution
   // This allows the handler to return immediately
   setImmediate(async () => {
+    const processTimestamp = new Date().toISOString();
+    console.log(`[${processTimestamp}] [Batch] ===== Background processing START =====`);
+    console.log(`[${processTimestamp}] [Batch] User: ${ctx.from!.id}, FileId: ${fileId}`);
+    
     try {
+      console.log(`[${processTimestamp}] [Batch] Step 1: Getting file info from Telegram...`);
       const file = await ctx.telegram.getFile(fileId);
+      console.log(`[${processTimestamp}] [Batch] File info received:`, {
+        file_id: file.file_id,
+        file_path: file.file_path,
+        file_size: file.file_size
+      });
+      
       const filePath = getTempFilePath('batch', 'tmp');
+      console.log(`[${processTimestamp}] [Batch] Step 2: Downloading file to: ${filePath}`);
       const url = `https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
       
       // Download with timeout
@@ -145,18 +165,54 @@ async function handleFileUpload(ctx: Context) {
         responseType: 'arraybuffer',
         timeout: 120000 // 2 minutes for download
       });
+      console.log(`[${processTimestamp}] [Batch] File downloaded, size: ${response.data.byteLength} bytes`);
       fs.writeFileSync(filePath, Buffer.from(response.data));
+      console.log(`[${processTimestamp}] [Batch] File saved to disk: ${filePath}, exists: ${fs.existsSync(filePath)}`);
 
+      console.log(`[${processTimestamp}] [Batch] Step 3: Sending to worker for conversion...`);
       const result = await workerClient.convert(filePath);
+      console.log(`[${processTimestamp}] [Batch] Conversion complete:`, {
+        output_path: result.output_path,
+        duration: result.duration,
+        kb: result.kb,
+        width: result.width,
+        height: result.height,
+        fps: result.fps
+      });
+      
       cleanupFile(filePath);
+      console.log(`[${processTimestamp}] [Batch] Cleaned up temp input file: ${filePath}`);
 
       // Verify output file exists before storing
-      if (!fs.existsSync(result.output_path)) {
+      console.log(`[${processTimestamp}] [Batch] Step 4: Verifying output file exists...`);
+      const outputExists = fs.existsSync(result.output_path);
+      const outputSize = outputExists ? fs.statSync(result.output_path).size : 0;
+      console.log(`[${processTimestamp}] [Batch] Output file check:`, {
+        path: result.output_path,
+        exists: outputExists,
+        size: outputSize,
+        sizeKB: Math.round(outputSize / 1024)
+      });
+      
+      if (!outputExists) {
+        console.error(`[${processTimestamp}] [Batch] ERROR: Converted file not found at: ${result.output_path}`);
+        console.error(`[${processTimestamp}] [Batch] Temp directory contents:`, {
+          tempDir: '/tmp/packputer',
+          exists: fs.existsSync('/tmp/packputer'),
+          files: fs.existsSync('/tmp/packputer') ? fs.readdirSync('/tmp/packputer').slice(0, 20) : []
+        });
         throw new Error(`Converted file not found at: ${result.output_path}`);
       }
 
       // Get fresh session to avoid race conditions
+      console.log(`[${processTimestamp}] [Batch] Step 5: Updating session with converted file...`);
       const currentSession = getSession(ctx.from!.id);
+      console.log(`[${processTimestamp}] [Batch] Current session before update:`, {
+        mode: currentSession.mode,
+        fileCount: currentSession.uploadedFiles.length,
+        existingPaths: currentSession.uploadedFiles.map(f => f.filePath)
+      });
+      
       currentSession.uploadedFiles.push({
         fileId,
         filePath: result.output_path,
@@ -170,8 +226,12 @@ async function handleFileUpload(ctx: Context) {
       });
 
       setSession(ctx.from!.id, currentSession);
-
-      console.log(`[Batch] File converted for user ${ctx.from!.id}: ${result.output_path}, total files: ${currentSession.uploadedFiles.length}`);
+      console.log(`[${processTimestamp}] [Batch] Session updated, new file count: ${currentSession.uploadedFiles.length}`);
+      console.log(`[${processTimestamp}] [Batch] All file paths in session:`, currentSession.uploadedFiles.map(f => ({
+        fileId: f.fileId,
+        filePath: f.filePath,
+        exists: f.filePath ? fs.existsSync(f.filePath) : false
+      })));
 
       await ctx.reply(
         `✅ Ready: ${result.duration.toFixed(1)}s · ${result.width}x${result.height}px · ${result.kb}KB`
@@ -203,19 +263,27 @@ async function handleFileUpload(ctx: Context) {
         }
       }, 3000); // 3 second delay
     } catch (error: any) {
-      console.error('Conversion error:', error);
-      console.error('Error details:', {
+      const errorTimestamp = new Date().toISOString();
+      console.error(`[${errorTimestamp}] [Batch] ===== ERROR in background processing =====`);
+      console.error(`[${errorTimestamp}] [Batch] User: ${ctx.from!.id}, FileId: ${fileId}`);
+      console.error(`[${errorTimestamp}] [Batch] Error:`, error);
+      console.error(`[${errorTimestamp}] [Batch] Error details:`, {
         fileId,
         errorMessage: error.message,
         errorStack: error.stack,
+        errorName: error.name
       });
       try {
         await ctx.reply('❌ Failed to convert file. Please try another file.');
       } catch (replyError) {
-        console.error('Failed to send error message:', replyError);
+        console.error(`[${errorTimestamp}] [Batch] Failed to send error message:`, replyError);
       }
+      console.error(`[${errorTimestamp}] [Batch] ===== ERROR processing END =====`);
     }
+    console.log(`[${processTimestamp}] [Batch] ===== Background processing END =====`);
   });
+  console.log(`[${timestamp}] [Batch] Handler returned immediately, processing in background`);
+  console.log(`[${timestamp}] [Batch] ===== handleFileUpload END =====`);
 }
 
 export async function handlePackTitle(ctx: Context, title: string) {
@@ -227,10 +295,26 @@ export async function handlePackTitle(ctx: Context, title: string) {
 }
 
 export async function handlePackEmoji(ctx: Context, emoji: string) {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] [Pack Creation] ===== handlePackEmoji START =====`);
+  console.log(`[${timestamp}] [Pack Creation] User: ${ctx.from!.id}, Emoji: ${emoji}`);
+  
   const session = getSession(ctx.from!.id);
-  if ((session.mode !== 'batch' && session.mode !== 'pack') || session.uploadedFiles.length === 0) return;
+  console.log(`[${timestamp}] [Pack Creation] Session:`, {
+    mode: session.mode,
+    fileCount: session.uploadedFiles.length,
+    packTitle: session.packTitle,
+    chosenPackAction: session.chosenPackAction,
+    existingPackName: session.existingPackName
+  });
+  
+  if ((session.mode !== 'batch' && session.mode !== 'pack') || session.uploadedFiles.length === 0) {
+    console.log(`[${timestamp}] [Pack Creation] Invalid session state - EXITING`);
+    return;
+  }
 
   if (!emoji || emoji.length > 2) {
+    console.log(`[${timestamp}] [Pack Creation] Invalid emoji - EXITING`);
     await ctx.reply('Please send a single emoji.');
     return;
   }
@@ -269,23 +353,41 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
       const firstFile = session.uploadedFiles[0];
       
       // Verify all files exist before proceeding
-      console.log(`[Pack Creation] Starting pack creation for user ${ctx.from!.id}, files: ${session.uploadedFiles.length}`);
+      console.log(`[${timestamp}] [Pack Creation] Step 1: Verifying all files exist...`);
+      console.log(`[${timestamp}] [Pack Creation] Total files to check: ${session.uploadedFiles.length}`);
+      console.log(`[${timestamp}] [Pack Creation] First file:`, {
+        fileId: firstFile.fileId,
+        filePath: firstFile.filePath,
+        exists: firstFile.filePath ? fs.existsSync(firstFile.filePath) : false
+      });
+      
+      const fileChecks = session.uploadedFiles.map(f => {
+        const exists = f.filePath ? fs.existsSync(f.filePath) : false;
+        const size = (f.filePath && exists) ? fs.statSync(f.filePath).size : 0;
+        return {
+          fileId: f.fileId,
+          path: f.filePath,
+          exists,
+          size,
+          sizeKB: Math.round(size / 1024)
+        };
+      });
+      console.log(`[${timestamp}] [Pack Creation] File checks:`, JSON.stringify(fileChecks, null, 2));
+      
       const missingFiles = session.uploadedFiles.filter(f => !f.filePath || !fs.existsSync(f.filePath));
       if (missingFiles.length > 0) {
-        console.error('[Pack Creation] Missing files:', missingFiles.map(f => f.filePath));
-        console.error('[Pack Creation] All files:', session.uploadedFiles.map(f => ({
-          path: f.filePath,
-          exists: f.filePath ? fs.existsSync(f.filePath) : false,
-          size: f.filePath && fs.existsSync(f.filePath) ? fs.statSync(f.filePath).size : 0
-        })));
-        console.error('[Pack Creation] Temp directory check:', {
+        console.error(`[${timestamp}] [Pack Creation] ERROR: ${missingFiles.length} file(s) missing!`);
+        console.error(`[${timestamp}] [Pack Creation] Missing files:`, missingFiles.map(f => f.filePath));
+        console.error(`[${timestamp}] [Pack Creation] Temp directory check:`, {
           tempDir: '/tmp/packputer',
           exists: fs.existsSync('/tmp/packputer'),
-          files: fs.existsSync('/tmp/packputer') ? fs.readdirSync('/tmp/packputer').slice(0, 20) : []
+          files: fs.existsSync('/tmp/packputer') ? fs.readdirSync('/tmp/packputer').slice(0, 30) : []
         });
         await ctx.reply(`❌ ${missingFiles.length} file(s) not found. Please try converting again.`);
         return;
       }
+      
+      console.log(`[${timestamp}] [Pack Creation] All files verified!`);
       
       if (!firstFile.filePath || !fs.existsSync(firstFile.filePath)) {
         console.error('[Pack Creation] First sticker file not found:', firstFile.filePath);
