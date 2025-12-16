@@ -74,13 +74,13 @@ bot.on('text', async (ctx) => {
     if (textLower === 'new') {
       console.log(`[${timestamp}] [Text Handler] User chose to create new pack`);
       setSession(ctx.from!.id, { chosenPackAction: 'new' });
-      await ctx.reply('What should the pack title be?', { reply_markup: { remove_keyboard: true } });
+      await ctx.reply('What should the pack title be?', REPLY_OPTIONS);
       return;
     } else if (textLower.startsWith('existing ')) {
       const packName = text.substring(9).trim();
       console.log(`[${timestamp}] [Text Handler] User chose to add to existing pack: ${packName}`);
       setSession(ctx.from!.id, { chosenPackAction: 'existing', existingPackName: packName });
-      await ctx.reply('Choose one emoji to apply to all stickers:', { reply_markup: { remove_keyboard: true } });
+      await ctx.reply('Choose one emoji to apply to all stickers:', REPLY_OPTIONS);
       return;
     }
   }
@@ -108,7 +108,7 @@ bot.on('text', async (ctx) => {
     const size = parseInt(textLower);
     console.log(`[${timestamp}] [Text Handler] User chose pack size: ${size}`);
     setSession(ctx.from!.id, { packSize: size });
-    await ctx.reply('Choose a theme: Reply with "degen", "wholesome", or "builder"', { reply_markup: { remove_keyboard: true } });
+    await ctx.reply('Choose a theme: Reply with "degen", "wholesome", or "builder"', REPLY_OPTIONS);
     return;
   }
 
@@ -116,7 +116,7 @@ bot.on('text', async (ctx) => {
   if (session.mode === 'pack' && session.packSize && !session.theme && (textLower === 'degen' || textLower === 'wholesome' || textLower === 'builder')) {
     console.log(`[${timestamp}] [Text Handler] User chose theme: ${textLower}`);
     setSession(ctx.from!.id, { theme: textLower });
-    await ctx.reply('Send a base image for the pack (PNG preferred).', { reply_markup: { remove_keyboard: true } });
+    await ctx.reply('Send a base image for the pack (PNG preferred).', REPLY_OPTIONS);
     return;
   }
 

@@ -26,7 +26,7 @@ export function setupAIFlows(bot: any) {
 
     await ctx.reply(
       'Send a base image (PNG preferred, JPG also accepted).',
-      { reply_markup: { remove_keyboard: true } }
+      REPLY_OPTIONS
     );
   });
 
@@ -107,7 +107,7 @@ async function handleAIStickerMaker(ctx: Context) {
 
       await ctx.reply(
         'What is this project/coin/mascot about? (vibe, inside jokes, do\'s/don\'ts, colors, keywords)\n\nOr send /skip to skip.',
-        { reply_markup: { remove_keyboard: true } }
+        REPLY_OPTIONS
       );
     } catch (error: any) {
       console.error('Image download error:', error);
