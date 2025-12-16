@@ -35,8 +35,16 @@ export function setupBatchConvertFlow(bot: Telegraf) {
       return;
     }
 
+    // Verify all files still exist
+    const missingFiles = session.uploadedFiles.filter(f => !f.filePath || !fs.existsSync(f.filePath));
+    if (missingFiles.length > 0) {
+      console.error('Files missing when Done pressed:', missingFiles);
+      await ctx.reply(`❌ ${missingFiles.length} file(s) are missing. Please convert them again.`);
+      return;
+    }
+
     await ctx.reply(
-      'Create new pack or add to existing?',
+      '✅ All files ready! Create new pack or add to existing?',
       packActionKeyboard
     );
   });
@@ -117,11 +125,11 @@ async function handleFileUpload(ctx: Context) {
     return;
   }
 
-  // Send immediate response to avoid timeout
-  const processingMsg = await ctx.reply('⏳ Processing...');
+  // Send immediate response and return to avoid timeout
+  await ctx.reply('⏳ Processing...');
   
-  // Process asynchronously to avoid blocking the handler
-  setImmediate(async () => {
+  // Process in background - use setTimeout(0) to truly defer execution
+  setTimeout(async () => {
     try {
       const file = await ctx.telegram.getFile(fileId);
       const filePath = getTempFilePath('batch', 'tmp');
@@ -137,7 +145,14 @@ async function handleFileUpload(ctx: Context) {
       const result = await workerClient.convert(filePath);
       cleanupFile(filePath);
 
-      session.uploadedFiles.push({
+      // Verify output file exists before storing
+      if (!fs.existsSync(result.output_path)) {
+        throw new Error(`Converted file not found at: ${result.output_path}`);
+      }
+
+      // Get fresh session to avoid race conditions
+      const currentSession = getSession(ctx.from!.id);
+      currentSession.uploadedFiles.push({
         fileId,
         filePath: result.output_path,
         metadata: {
@@ -149,20 +164,33 @@ async function handleFileUpload(ctx: Context) {
         },
       });
 
-      setSession(ctx.from!.id, session);
+      setSession(ctx.from!.id, currentSession);
 
       await ctx.reply(
         `✅ Ready: ${result.duration.toFixed(1)}s · ${result.width}x${result.height}px · ${result.kb}KB`
       );
+
+      // Auto-proceed if we've reached the batch limit or if user has 10 files
+      if (currentSession.uploadedFiles.length >= MAX_BATCH_SIZE) {
+        await ctx.reply(
+          '✅ All files converted! Create new pack or add to existing?',
+          packActionKeyboard
+        );
+      }
     } catch (error: any) {
       console.error('Conversion error:', error);
+      console.error('Error details:', {
+        fileId,
+        errorMessage: error.message,
+        errorStack: error.stack,
+      });
       try {
         await ctx.reply('❌ Failed to convert file. Please try another file.');
       } catch (replyError) {
         console.error('Failed to send error message:', replyError);
       }
     }
-  });
+  }, 0);
 }
 
 export async function handlePackTitle(ctx: Context, title: string) {
@@ -214,15 +242,30 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
 
       // Create pack with first sticker
       const firstFile = session.uploadedFiles[0];
-      console.log('Checking first file:', {
-        filePath: firstFile.filePath,
-        exists: firstFile.filePath ? fs.existsSync(firstFile.filePath) : false,
-        allFiles: session.uploadedFiles.map(f => ({ path: f.filePath, exists: f.filePath ? fs.existsSync(f.filePath) : false }))
-      });
+      
+      // Verify all files exist before proceeding
+      const missingFiles = session.uploadedFiles.filter(f => !f.filePath || !fs.existsSync(f.filePath));
+      if (missingFiles.length > 0) {
+        console.error('Missing files:', missingFiles.map(f => f.filePath));
+        console.error('All files:', session.uploadedFiles.map(f => ({
+          path: f.filePath,
+          exists: f.filePath ? fs.existsSync(f.filePath) : false,
+          size: f.filePath && fs.existsSync(f.filePath) ? fs.statSync(f.filePath).size : 0
+        })));
+        await ctx.reply(`❌ ${missingFiles.length} file(s) not found. Please try converting again.`);
+        return;
+      }
       
       if (!firstFile.filePath || !fs.existsSync(firstFile.filePath)) {
         console.error('First sticker file not found:', firstFile.filePath);
-        await ctx.reply('❌ First sticker file not found. Check bot logs for details.');
+        console.error('File system check:', {
+          tempDir: '/tmp/packputer',
+          tempDirExists: fs.existsSync('/tmp/packputer'),
+          filesInTemp: fs.existsSync('/tmp/packputer') ? fs.readdirSync('/tmp/packputer').slice(0, 10) : [],
+          firstFilePath: firstFile.filePath,
+          firstFileExists: fs.existsSync(firstFile.filePath),
+        });
+        await ctx.reply('❌ First sticker file not found. The file may have been cleaned up. Please try again.');
         return;
       }
 
