@@ -117,39 +117,52 @@ async function handleFileUpload(ctx: Context) {
     return;
   }
 
-  try {
-    await ctx.reply('⏳ Processing...');
+  // Send immediate response to avoid timeout
+  const processingMsg = await ctx.reply('⏳ Processing...');
+  
+  // Process asynchronously to avoid blocking the handler
+  setImmediate(async () => {
+    try {
+      const file = await ctx.telegram.getFile(fileId);
+      const filePath = getTempFilePath('batch', 'tmp');
+      const url = `https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+      
+      // Download with timeout
+      const response = await axios.get(url, { 
+        responseType: 'arraybuffer',
+        timeout: 120000 // 2 minutes for download
+      });
+      fs.writeFileSync(filePath, Buffer.from(response.data));
 
-    const file = await ctx.telegram.getFile(fileId);
-    const filePath = getTempFilePath('batch', 'tmp');
-    const url = `https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
-    const response = await axios.get(url, { responseType: 'arraybuffer' });
-    fs.writeFileSync(filePath, Buffer.from(response.data));
+      const result = await workerClient.convert(filePath);
+      cleanupFile(filePath);
 
-    const result = await workerClient.convert(filePath);
-    cleanupFile(filePath);
+      session.uploadedFiles.push({
+        fileId,
+        filePath: result.output_path,
+        metadata: {
+          duration: result.duration,
+          kb: result.kb,
+          width: result.width,
+          height: result.height,
+          fps: result.fps,
+        },
+      });
 
-    session.uploadedFiles.push({
-      fileId,
-      filePath: result.output_path,
-      metadata: {
-        duration: result.duration,
-        kb: result.kb,
-        width: result.width,
-        height: result.height,
-        fps: result.fps,
-      },
-    });
+      setSession(ctx.from!.id, session);
 
-    setSession(ctx.from!.id, session);
-
-    await ctx.reply(
-      `✅ Ready: ${result.duration.toFixed(1)}s · ${result.width}x${result.height}px · ${result.kb}KB`
-    );
-  } catch (error) {
-    console.error('Conversion error:', error);
-    await ctx.reply('❌ Failed to convert file. Please try another file.');
-  }
+      await ctx.reply(
+        `✅ Ready: ${result.duration.toFixed(1)}s · ${result.width}x${result.height}px · ${result.kb}KB`
+      );
+    } catch (error: any) {
+      console.error('Conversion error:', error);
+      try {
+        await ctx.reply('❌ Failed to convert file. Please try another file.');
+      } catch (replyError) {
+        console.error('Failed to send error message:', replyError);
+      }
+    }
+  });
 }
 
 export async function handlePackTitle(ctx: Context, title: string) {

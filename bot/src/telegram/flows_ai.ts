@@ -124,23 +124,36 @@ async function handleAIStickerMaker(ctx: Context) {
     return;
   }
 
-  try {
-    const file = await ctx.telegram.getFile(fileId);
-    const filePath = getTempFilePath('ai_base', 'png');
-    const url = `https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
-    const response = await axios.get(url, { responseType: 'arraybuffer' });
-    fs.writeFileSync(filePath, Buffer.from(response.data));
+  // Send immediate response
+  const processingMsg = await ctx.reply('⏳ Downloading image...');
+  
+  // Process asynchronously to avoid blocking
+  setImmediate(async () => {
+    try {
+      const file = await ctx.telegram.getFile(fileId);
+      const filePath = getTempFilePath('ai_base', 'png');
+      const url = `https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+      const response = await axios.get(url, { 
+        responseType: 'arraybuffer',
+        timeout: 120000 // 2 minutes for download
+      });
+      fs.writeFileSync(filePath, Buffer.from(response.data));
 
-    setSession(ctx.from!.id, { uploadedFiles: [{ fileId, filePath }] });
+      setSession(ctx.from!.id, { uploadedFiles: [{ fileId, filePath }] });
 
-    await ctx.reply(
-      'What is this project/coin/mascot about? (vibe, inside jokes, do\'s/don\'ts, colors, keywords)\n\nOr send /skip to skip.',
-      mainMenu
-    );
-  } catch (error) {
-    console.error('Image download error:', error);
-    await ctx.reply('❌ Failed to download image.');
-  }
+      await ctx.reply(
+        'What is this project/coin/mascot about? (vibe, inside jokes, do\'s/don\'ts, colors, keywords)\n\nOr send /skip to skip.',
+        mainMenu
+      );
+    } catch (error: any) {
+      console.error('Image download error:', error);
+      try {
+        await ctx.reply('❌ Failed to download image.');
+      } catch (replyError) {
+        console.error('Failed to send error message:', replyError);
+      }
+    }
+  });
 }
 
 export async function handleProjectContext(ctx: Context, text: string) {
@@ -162,47 +175,55 @@ export async function handleTemplate(ctx: Context, template: string) {
 
   setSession(ctx.from!.id, { chosenTemplate: template });
 
-  try {
-    await ctx.reply('🎨 Generating sticker with AI...');
+  // Send immediate response
+  const processingMsg = await ctx.reply('🎨 Generating sticker with AI...');
+  
+  // Process asynchronously to avoid blocking
+  setImmediate(async () => {
+    try {
+      const baseImage = session.uploadedFiles[0];
+      if (!baseImage.filePath || !fs.existsSync(baseImage.filePath)) {
+        await ctx.reply('❌ Base image not found.');
+        return;
+      }
 
-    const baseImage = session.uploadedFiles[0];
-    if (!baseImage.filePath || !fs.existsSync(baseImage.filePath)) {
-      await ctx.reply('❌ Base image not found.');
-      return;
-    }
+      const blueprint = await memeputerClient.getBlueprint(
+        template,
+        session.projectContext
+      );
 
-    const blueprint = await memeputerClient.getBlueprint(
-      template,
-      session.projectContext
-    );
+      const blueprintJson = JSON.stringify(blueprint);
+      const result = await workerClient.aiRender(baseImage.filePath, blueprintJson);
 
-    const blueprintJson = JSON.stringify(blueprint);
-    const result = await workerClient.aiRender(baseImage.filePath, blueprintJson);
+      // Ask which pack to add to
+      await ctx.reply('Create new pack or add to existing?', packActionKeyboard);
 
-    // Ask which pack to add to
-    await ctx.reply('Create new pack or add to existing?', packActionKeyboard);
-
-    // Store the result for pack creation
-    session.uploadedFiles = [
-      {
-        fileId: '',
-        filePath: result.output_path,
-        metadata: {
-          duration: result.duration,
-          kb: result.kb,
-          width: result.width,
-          height: result.height,
-          fps: result.fps,
+      // Store the result for pack creation
+      session.uploadedFiles = [
+        {
+          fileId: '',
+          filePath: result.output_path,
+          metadata: {
+            duration: result.duration,
+            kb: result.kb,
+            width: result.width,
+            height: result.height,
+            fps: result.fps,
+          },
         },
-      },
-    ];
-    setSession(ctx.from!.id, session);
+      ];
+      setSession(ctx.from!.id, session);
 
-    cleanupFile(baseImage.filePath);
-  } catch (error) {
-    console.error('AI render error:', error);
-    await ctx.reply('❌ Failed to generate sticker.');
-  }
+      cleanupFile(baseImage.filePath);
+    } catch (error: any) {
+      console.error('AI render error:', error);
+      try {
+        await ctx.reply('❌ Failed to generate sticker.');
+      } catch (replyError) {
+        console.error('Failed to send error message:', replyError);
+      }
+    }
+  });
 }
 
 async function handleAIGeneratePack(ctx: Context) {
@@ -226,43 +247,54 @@ async function handleAIGeneratePack(ctx: Context) {
     return;
   }
 
-  try {
-    await ctx.reply('🎨 Generating sticker pack with AI...');
+  // Send immediate response
+  const processingMsg = await ctx.reply('🎨 Generating sticker pack with AI...');
+  
+  // Process asynchronously to avoid blocking
+  setImmediate(async () => {
+    try {
+      const file = await ctx.telegram.getFile(fileId);
+      const baseImagePath = getTempFilePath('pack_base', 'png');
+      const url = `https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+      const response = await axios.get(url, { 
+        responseType: 'arraybuffer',
+        timeout: 120000 // 2 minutes for download
+      });
+      fs.writeFileSync(baseImagePath, Buffer.from(response.data));
 
-    const file = await ctx.telegram.getFile(fileId);
-    const baseImagePath = getTempFilePath('pack_base', 'png');
-    const url = `https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
-    const response = await axios.get(url, { responseType: 'arraybuffer' });
-    fs.writeFileSync(baseImagePath, Buffer.from(response.data));
+      const blueprints = await memeputerClient.getBlueprints(
+        session.packSize,
+        'GM', // Default template
+        session.projectContext,
+        session.theme
+      );
 
-    const blueprints = await memeputerClient.getBlueprints(
-      session.packSize,
-      'GM', // Default template
-      session.projectContext,
-      session.theme
-    );
+      const stickerPaths: string[] = [];
 
-    const stickerPaths: string[] = [];
+      for (let i = 0; i < blueprints.length; i++) {
+        await ctx.reply(`Generating sticker ${i + 1}/${blueprints.length}...`);
 
-    for (let i = 0; i < blueprints.length; i++) {
-      await ctx.reply(`Generating sticker ${i + 1}/${blueprints.length}...`);
+        const blueprintJson = JSON.stringify(blueprints[i]);
+        const result = await workerClient.aiRender(baseImagePath, blueprintJson);
+        stickerPaths.push(result.output_path);
+      }
 
-      const blueprintJson = JSON.stringify(blueprints[i]);
-      const result = await workerClient.aiRender(baseImagePath, blueprintJson);
-      stickerPaths.push(result.output_path);
+      // Ask for pack title
+      await ctx.reply('What should the pack title be?');
+      setSession(ctx.from!.id, {
+        uploadedFiles: stickerPaths.map((path) => ({ fileId: '', filePath: path })),
+        chosenPackAction: 'new', // Always create new for AI packs
+      });
+
+      cleanupFile(baseImagePath);
+    } catch (error: any) {
+      console.error('AI pack generation error:', error);
+      try {
+        await ctx.reply('❌ Failed to generate pack.');
+      } catch (replyError) {
+        console.error('Failed to send error message:', replyError);
+      }
     }
-
-    // Ask for pack title
-    await ctx.reply('What should the pack title be?');
-    setSession(ctx.from!.id, {
-      uploadedFiles: stickerPaths.map((path) => ({ fileId: '', filePath: path })),
-      chosenPackAction: 'new', // Always create new for AI packs
-    });
-
-    cleanupFile(baseImagePath);
-  } catch (error) {
-    console.error('AI pack generation error:', error);
-    await ctx.reply('❌ Failed to generate pack.');
-  }
+  });
 }
 
