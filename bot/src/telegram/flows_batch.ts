@@ -15,6 +15,7 @@ import {
   getAddStickerLink,
   getStickerSetEmoji,
   resolveStickerSetName,
+  extractStickerSetEmoji,
 } from './packs';
 
 const MAX_BATCH_SIZE = 10;
@@ -344,14 +345,21 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
       // Add to existing pack
       await ctx.reply('📦 Adding stickers to pack...');
       
+      // Use the resolved pack name from session (should already be resolved)
       const packName = session.existingPackName;
+      console.log(`[${packTimestamp}] [Pack Creation] Adding to existing pack: "${packName}"`);
+      
       let addedCount = 0;
       
       for (const file of session.uploadedFiles) {
         if (file.filePath && fs.existsSync(file.filePath)) {
+          console.log(`[${packTimestamp}] [Pack Creation] Adding sticker to pack "${packName}"`);
           const success = await addStickerToSet(ctx, packName, file.filePath, emoji);
           if (success) {
             addedCount++;
+            console.log(`[${packTimestamp}] [Pack Creation] Successfully added sticker ${addedCount}`);
+          } else {
+            console.error(`[${packTimestamp}] [Pack Creation] Failed to add sticker to pack "${packName}"`);
           }
         }
       }
@@ -495,11 +503,20 @@ export async function handleExistingPackName(ctx: Context, packName: string) {
   const resolvedPackName = resolveStickerSetName(packName);
   console.log(`[${timestamp}] [Pack Creation] Resolved pack name: "${packName}" -> "${resolvedPackName}"`);
 
-  // Get emoji from existing pack using resolved name
-  // getStickerSetEmoji already handles name resolution internally, but we need resolved name for storage
-  const emoji = await getStickerSetEmoji(ctx, packName);
+  // Get emoji from existing pack using RESOLVED name
+  // Call API directly with resolved name to avoid double resolution
+  let packEmoji: string | null = null;
+  try {
+    const result = await (ctx as any).telegram.callApi("getStickerSet", {
+      name: resolvedPackName,
+    });
+    packEmoji = extractStickerSetEmoji(result);
+    console.log(`[${timestamp}] [Pack Creation] Successfully fetched sticker set "${resolvedPackName}", emoji: ${packEmoji}`);
+  } catch (error: any) {
+    console.error(`[${timestamp}] [Pack Creation] Failed to get sticker set "${resolvedPackName}":`, error.message);
+  }
   
-  if (!emoji) {
+  if (!packEmoji) {
     console.error(`[${timestamp}] [Pack Creation] Failed to get emoji from pack "${resolvedPackName}"`);
     await ctx.reply(
       `❌ I couldn't find that sticker pack.\n` +
@@ -508,12 +525,20 @@ export async function handleExistingPackName(ctx: Context, packName: string) {
     return;
   }
 
-  console.log(`[${timestamp}] [Pack Creation] Got emoji from pack: ${emoji}`);
+  console.log(`[${timestamp}] [Pack Creation] Got emoji from pack: ${packEmoji}`);
   
-  // Set both resolved pack name and emoji, then proceed directly to adding stickers
-  setSession(ctx.from!.id, { existingPackName: resolvedPackName, emoji });
+  // CRITICAL: Store the RESOLVED pack name in session BEFORE calling handlePackEmoji
+  // This ensures handlePackEmoji uses the correct resolved name
+  setSession(ctx.from!.id, { 
+    existingPackName: resolvedPackName,  // Store resolved name
+    emoji: packEmoji 
+  });
+  
+  // Verify session was updated correctly
+  const updatedSession = getSession(ctx.from!.id);
+  console.log(`[${timestamp}] [Pack Creation] Session updated with existingPackName: "${updatedSession.existingPackName}"`);
   
   // Proceed directly to adding stickers (skip emoji prompt)
-  await handlePackEmoji(ctx, emoji);
+  await handlePackEmoji(ctx, packEmoji);
 }
 

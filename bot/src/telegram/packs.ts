@@ -56,6 +56,8 @@ export function resolveStickerSetName(input: string): string {
  * Handles both emoji_list (array) and emoji (string) formats
  */
 export function extractStickerSetEmoji(stickerSet: any): string | null {
+  if (!stickerSet) return null;
+  
   const first = stickerSet?.stickers?.[0];
   if (!first) return null;
 
