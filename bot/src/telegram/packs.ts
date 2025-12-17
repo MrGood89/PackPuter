@@ -1,5 +1,4 @@
 import { Context } from 'telegraf';
-import { InputFile } from 'telegraf';
 import { env } from '../env';
 import fs from 'fs';
 
@@ -31,15 +30,13 @@ export async function createStickerSet(
     // Use the correct Telegram Bot API format for createNewStickerSet
     // Telegraf signature: createNewStickerSet(userId, name, title, sticker, emoji, extra?)
     // For video stickers, we need to pass sticker_type in the extra options
-    // InputFile.fromLocalFile() creates the proper format for Telegram
-    const sticker = InputFile.fromLocalFile(firstStickerPath);
-    
+    // Telegraf accepts file path as string - it will handle the file upload automatically
     // TypeScript definitions don't include sticker_type, so we use type assertion
     await (ctx.telegram as any).createNewStickerSet(
       ctx.from!.id,
       shortName,
       title,
-      sticker,
+      firstStickerPath, // Pass file path directly - Telegraf handles it
       emoji,
       { sticker_type: 'video' }
     );
@@ -89,14 +86,12 @@ export async function addStickerToSet(
       return false;
     }
     
-    // Use InputFile.fromLocalFile() for proper Telegram API format
-    const sticker = InputFile.fromLocalFile(stickerPath);
-
+    // Telegraf accepts file path as string - it will handle the file upload automatically
     // TypeScript definitions don't include sticker_type, so we use type assertion
     await (ctx.telegram as any).addStickerToSet(
       ctx.from!.id,
       setName,
-      sticker,
+      stickerPath, // Pass file path directly - Telegraf handles it
       emoji,
       { sticker_type: 'video' }
     );
