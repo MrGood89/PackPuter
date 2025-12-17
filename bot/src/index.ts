@@ -98,12 +98,9 @@ bot.action(/^cmd:(.+)$/, async (ctx) => {
   }
   
   // CRITICAL: Also remove any ReplyKeyboard that might be showing
+  // Use a minimal non-empty message to avoid Telegram error
   try {
-    await ctx.telegram.sendMessage(ctx.chat!.id, '', {
-      reply_markup: {
-        remove_keyboard: true
-      }
-    });
+    await ctx.reply('Clearing...', REMOVE_KEYBOARD);
   } catch (error) {
     // Ignore - keyboard might not exist
   }
