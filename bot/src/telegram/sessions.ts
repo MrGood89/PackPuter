@@ -23,6 +23,7 @@ export interface Session {
   existingPackName?: string;
   packSize?: number; // for AI Generate Pack
   theme?: string; // for AI Generate Pack
+  autoProceedSent?: boolean; // Track if auto-proceed message was sent
 }
 
 const sessions = new Map<number, Session>();

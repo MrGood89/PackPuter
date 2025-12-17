@@ -178,31 +178,49 @@ async function handleFileUpload(ctx: Context) {
         `✅ Ready: ${result.duration.toFixed(1)}s · ${result.width}x${result.height}px · ${result.kb}KB`
       );
 
-      // Auto-proceed after a short delay to allow user to send more files
-      // If no new files arrive within 3 seconds, proceed automatically
+      // Auto-proceed logic: Only trigger once after ALL files are done
+      // Cancel any previous timeout for this user
+      const userId = ctx.from!.id;
+      if ((global as any).batchTimeouts && (global as any).batchTimeouts[userId]) {
+        clearTimeout((global as any).batchTimeouts[userId]);
+        console.log(`[${processTimestamp}] [Batch] Cancelled previous auto-proceed timeout for user ${userId}`);
+      }
+      
+      // Set new timeout - this will only fire if no new files arrive
       const fileCountAtCompletion = currentSession.uploadedFiles.length;
-      setTimeout(async () => {
+      (global as any).batchTimeouts = (global as any).batchTimeouts || {};
+      (global as any).batchTimeouts[userId] = setTimeout(async () => {
         try {
-          const finalSession = getSession(ctx.from!.id);
+          const finalSession = getSession(userId);
           // Only auto-proceed if still in batch mode and we have files
           if (finalSession.mode === 'batch' && finalSession.uploadedFiles.length > 0) {
             // Check if user sent more files (compare file count)
             const fileCountAfterDelay = finalSession.uploadedFiles.length;
             // If file count matches what we had, user hasn't sent more - proceed
             if (fileCountAfterDelay === fileCountAtCompletion) {
-              console.log(`[Batch] Auto-proceeding for user ${ctx.from!.id} with ${fileCountAfterDelay} files`);
-              await ctx.reply(
-                '✅ All files converted! Reply with:\n' +
-                '• "new" to create a new pack\n' +
-                '• "existing <pack_name>" to add to existing pack',
-                FORCE_REPLY
-              );
+              const autoProceedTimestamp = new Date().toISOString();
+              console.log(`[${autoProceedTimestamp}] [Batch] Auto-proceeding for user ${userId} with ${fileCountAfterDelay} files`);
+              // Check if we already sent this message (avoid duplicates)
+              if (!finalSession.autoProceedSent) {
+                await ctx.reply(
+                  '✅ All files converted! Reply with:\n' +
+                  '• "new" to create a new pack\n' +
+                  '• "existing <pack_name>" to add to existing pack',
+                  FORCE_REPLY
+                );
+                finalSession.autoProceedSent = true;
+                setSession(userId, finalSession);
+              }
             } else {
-              console.log(`[Batch] User ${ctx.from!.id} sent more files (${fileCountAfterDelay} vs ${fileCountAtCompletion}), not auto-proceeding yet`);
+              console.log(`[Batch] User ${userId} sent more files (${fileCountAfterDelay} vs ${fileCountAtCompletion}), not auto-proceeding yet`);
             }
           }
+          // Clean up timeout reference
+          if ((global as any).batchTimeouts && (global as any).batchTimeouts[userId]) {
+            delete (global as any).batchTimeouts[userId];
+          }
         } catch (error: any) {
-          console.error(`[Batch] Error in auto-proceed for user ${ctx.from!.id}:`, error);
+          console.error(`[Batch] Error in auto-proceed for user ${userId}:`, error);
         }
       }, 3000); // 3 second delay
     } catch (error: any) {

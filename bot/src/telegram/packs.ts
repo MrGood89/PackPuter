@@ -11,11 +11,29 @@ export async function createStickerSet(
   emoji: string
 ): Promise<boolean> {
   try {
-    const sticker = {
-      source: fs.createReadStream(firstStickerPath) as unknown as InputFile,
-    };
+    // Verify file exists and get size
+    if (!fs.existsSync(firstStickerPath)) {
+      console.error('createStickerSet: File does not exist:', firstStickerPath);
+      return false;
+    }
+    
+    const fileSize = fs.statSync(firstStickerPath).size;
+    console.log('createStickerSet: Creating sticker set with:', {
+      title,
+      shortName,
+      emoji,
+      filePath: firstStickerPath,
+      fileSize,
+      fileSizeKB: Math.round(fileSize / 1024),
+      userId: ctx.from!.id
+    });
 
-    await (ctx.telegram as any).createNewStickerSet(
+    // Use the correct Telegram Bot API format for createNewStickerSet
+    // Telegraf signature: createNewStickerSet(userId, name, title, sticker, emoji, extra?)
+    // For video stickers, sticker should be InputFile (stream or path)
+    const sticker = fs.createReadStream(firstStickerPath);
+    
+    await ctx.telegram.createNewStickerSet(
       ctx.from!.id,
       shortName,
       title,
@@ -24,22 +42,34 @@ export async function createStickerSet(
       { sticker_type: 'video' }
     );
 
+    console.log('createStickerSet: Successfully created sticker set:', shortName);
     return true;
   } catch (error: any) {
-    console.error('Failed to create sticker set:', error);
-    console.error('Error details:', {
+    const errorTimestamp = new Date().toISOString();
+    console.error(`[${errorTimestamp}] createStickerSet: Failed to create sticker set`);
+    console.error(`[${errorTimestamp}] Error type:`, error.constructor.name);
+    console.error(`[${errorTimestamp}] Error message:`, error.message);
+    console.error(`[${errorTimestamp}] Error code:`, error.code);
+    console.error(`[${errorTimestamp}] Error details:`, {
       title,
       shortName,
       emoji,
       filePath: firstStickerPath,
       fileExists: fs.existsSync(firstStickerPath),
-      errorMessage: error.message,
-      errorCode: error.code,
+      fileSize: fs.existsSync(firstStickerPath) ? fs.statSync(firstStickerPath).size : 0,
+      userId: ctx.from!.id,
     });
+    
     if (error.response) {
-      console.error('Telegram API error response:', JSON.stringify(error.response, null, 2));
-      console.error('Telegram API error description:', error.response.description);
+      console.error(`[${errorTimestamp}] Telegram API error response:`, JSON.stringify(error.response, null, 2));
+      console.error(`[${errorTimestamp}] Telegram API error description:`, error.response.description);
+      console.error(`[${errorTimestamp}] Telegram API error code:`, error.response.error_code);
     }
+    
+    if (error.stack) {
+      console.error(`[${errorTimestamp}] Error stack:`, error.stack);
+    }
+    
     return false;
   }
 }
@@ -51,11 +81,15 @@ export async function addStickerToSet(
   emoji: string
 ): Promise<boolean> {
   try {
-    const sticker = {
-      source: fs.createReadStream(stickerPath) as unknown as InputFile,
-    };
+    // Verify file exists
+    if (!fs.existsSync(stickerPath)) {
+      console.error('addStickerToSet: File does not exist:', stickerPath);
+      return false;
+    }
+    
+    const sticker = fs.createReadStream(stickerPath);
 
-    await (ctx.telegram as any).addStickerToSet(
+    await ctx.telegram.addStickerToSet(
       ctx.from!.id,
       setName,
       sticker,
@@ -65,18 +99,25 @@ export async function addStickerToSet(
 
     return true;
   } catch (error: any) {
-    console.error('Failed to add sticker to set:', error);
-    console.error('Error details:', {
+    const errorTimestamp = new Date().toISOString();
+    console.error(`[${errorTimestamp}] addStickerToSet: Failed to add sticker to set`);
+    console.error(`[${errorTimestamp}] Error type:`, error.constructor.name);
+    console.error(`[${errorTimestamp}] Error message:`, error.message);
+    console.error(`[${errorTimestamp}] Error details:`, {
       setName,
       emoji,
       filePath: stickerPath,
       fileExists: fs.existsSync(stickerPath),
-      errorMessage: error.message,
-      errorCode: error.code,
+      fileSize: fs.existsSync(stickerPath) ? fs.statSync(stickerPath).size : 0,
+      userId: ctx.from!.id,
     });
     if (error.response) {
-      console.error('Telegram API error response:', JSON.stringify(error.response, null, 2));
-      console.error('Telegram API error description:', error.response.description);
+      console.error(`[${errorTimestamp}] Telegram API error response:`, JSON.stringify(error.response, null, 2));
+      console.error(`[${errorTimestamp}] Telegram API error description:`, error.response.description);
+      console.error(`[${errorTimestamp}] Telegram API error code:`, error.response.error_code);
+    }
+    if (error.stack) {
+      console.error(`[${errorTimestamp}] Error stack:`, error.stack);
     }
     return false;
   }
