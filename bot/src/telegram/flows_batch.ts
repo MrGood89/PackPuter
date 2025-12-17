@@ -179,7 +179,7 @@ async function handleFileUpload(ctx: Context) {
       );
 
       // Auto-proceed logic: Only trigger once after ALL files are done
-      // Cancel any previous timeout for this user
+      // Cancel any previous timeout for this user and set a new one
       const userId = ctx.from!.id;
       if ((global as any).batchTimeouts && (global as any).batchTimeouts[userId]) {
         clearTimeout((global as any).batchTimeouts[userId]);
@@ -199,17 +199,23 @@ async function handleFileUpload(ctx: Context) {
             // If file count matches what we had, user hasn't sent more - proceed
             if (fileCountAfterDelay === fileCountAtCompletion) {
               const autoProceedTimestamp = new Date().toISOString();
-              console.log(`[${autoProceedTimestamp}] [Batch] Auto-proceeding for user ${userId} with ${fileCountAfterDelay} files`);
-              // Check if we already sent this message (avoid duplicates)
+              console.log(`[${autoProceedTimestamp}] [Batch] Auto-proceed check for user ${userId}: ${fileCountAfterDelay} files (expected ${fileCountAtCompletion})`);
+              
+              // CRITICAL: Double-check we haven't already sent this message
+              // Use a mutex-like approach with a flag check + set
               if (!finalSession.autoProceedSent) {
+                console.log(`[${autoProceedTimestamp}] [Batch] Sending auto-proceed message for user ${userId}`);
+                finalSession.autoProceedSent = true;
+                setSession(userId, finalSession);
+                
                 await ctx.reply(
                   '✅ All files converted! Reply with:\n' +
                   '• "new" to create a new pack\n' +
                   '• "existing <pack_name>" to add to existing pack',
                   FORCE_REPLY
                 );
-                finalSession.autoProceedSent = true;
-                setSession(userId, finalSession);
+              } else {
+                console.log(`[${autoProceedTimestamp}] [Batch] Auto-proceed message already sent for user ${userId}, skipping`);
               }
             } else {
               console.log(`[Batch] User ${userId} sent more files (${fileCountAfterDelay} vs ${fileCountAtCompletion}), not auto-proceeding yet`);
