@@ -30,10 +30,11 @@ export async function createStickerSet(
 
     // Use the correct Telegram Bot API format for createNewStickerSet
     // Telegraf signature: createNewStickerSet(userId, name, title, sticker, emoji, extra?)
-    // For video stickers, sticker should be InputFile (stream or path)
+    // For video stickers, we need to pass sticker_type in the extra options
     const sticker = fs.createReadStream(firstStickerPath);
     
-    await ctx.telegram.createNewStickerSet(
+    // TypeScript definitions don't include sticker_type, so we use type assertion
+    await (ctx.telegram as any).createNewStickerSet(
       ctx.from!.id,
       shortName,
       title,
@@ -89,7 +90,8 @@ export async function addStickerToSet(
     
     const sticker = fs.createReadStream(stickerPath);
 
-    await ctx.telegram.addStickerToSet(
+    // TypeScript definitions don't include sticker_type, so we use type assertion
+    await (ctx.telegram as any).addStickerToSet(
       ctx.from!.id,
       setName,
       sticker,
