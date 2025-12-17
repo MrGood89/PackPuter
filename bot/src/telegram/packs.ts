@@ -1,6 +1,8 @@
-import { Context, Input } from 'telegraf';
+import { Context } from 'telegraf';
 import { env } from '../env';
 import fs from 'fs';
+import FormData from 'form-data';
+import axios from 'axios';
 
 export async function createStickerSet(
   ctx: Context,
@@ -27,21 +29,31 @@ export async function createStickerSet(
       userId: ctx.from!.id
     });
 
-    // Use the correct Telegram Bot API format for createNewStickerSet
-    // Telegraf signature: createNewStickerSet(userId, name, title, sticker, emoji, extra?)
-    // For video stickers, we need to pass sticker_type in the extra options
-    // Use Input.fromLocalFile() to create proper InputFile object
-    const sticker = Input.fromLocalFile(firstStickerPath);
-    
-    // TypeScript definitions don't include sticker_type, so we use type assertion
-    await (ctx.telegram as any).createNewStickerSet(
-      ctx.from!.id,
-      shortName,
-      title,
-      sticker,
-      emoji,
-      { sticker_type: 'video' }
+    // Use raw Telegram Bot API with form-data for video stickers
+    // Telegraf's createNewStickerSet doesn't handle video stickers properly
+    const form = new FormData();
+    form.append('user_id', ctx.from!.id.toString());
+    form.append('name', shortName);
+    form.append('title', title);
+    form.append('sticker', fs.createReadStream(firstStickerPath), {
+      filename: 'sticker.webm',
+      contentType: 'video/webm'
+    });
+    form.append('emoji', emoji);
+    form.append('sticker_type', 'video');
+
+    const response = await axios.post(
+      `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/createNewStickerSet`,
+      form,
+      {
+        headers: form.getHeaders(),
+        timeout: 30000
+      }
     );
+
+    if (!response.data.ok) {
+      throw new Error(response.data.description || 'Failed to create sticker set');
+    }
 
     console.log('createStickerSet: Successfully created sticker set:', shortName);
     return true;
@@ -88,17 +100,29 @@ export async function addStickerToSet(
       return false;
     }
     
-    // Use Input.fromLocalFile() to create proper InputFile object
-    const sticker = Input.fromLocalFile(stickerPath);
-    
-    // TypeScript definitions don't include sticker_type, so we use type assertion
-    await (ctx.telegram as any).addStickerToSet(
-      ctx.from!.id,
-      setName,
-      sticker,
-      emoji,
-      { sticker_type: 'video' }
+    // Use raw Telegram Bot API with form-data for video stickers
+    const form = new FormData();
+    form.append('user_id', ctx.from!.id.toString());
+    form.append('name', setName);
+    form.append('sticker', fs.createReadStream(stickerPath), {
+      filename: 'sticker.webm',
+      contentType: 'video/webm'
+    });
+    form.append('emoji', emoji);
+    form.append('sticker_type', 'video');
+
+    const response = await axios.post(
+      `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/addStickerToSet`,
+      form,
+      {
+        headers: form.getHeaders(),
+        timeout: 30000
+      }
     );
+
+    if (!response.data.ok) {
+      throw new Error(response.data.description || 'Failed to add sticker to set');
+    }
 
     return true;
   } catch (error: any) {
