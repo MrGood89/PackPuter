@@ -41,6 +41,9 @@ export async function runCommand(ctx: Context, key: CommandKey): Promise<void> {
       case 'batch': {
         resetSession(ctx.from!.id);
         setSession(ctx.from!.id, { mode: 'batch' });
+        // Reset batch state tracking
+        const { resetBatchState } = await import('./flows_batch');
+        resetBatchState(ctx.from!.id);
         await ctx.reply(
           'Send up to 10 GIFs/videos. I\'ll convert each into Telegram-ready stickers.\nWhen finished, use /done command.'
         );

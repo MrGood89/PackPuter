@@ -157,17 +157,14 @@ bot.on('text', async (ctx) => {
   }
 
   // Existing pack name handling (if user types pack name directly after "existing")
+  // This should only trigger if we haven't resolved the pack name yet
   if (session.mode === 'batch' && session.chosenPackAction === 'existing' && !session.existingPackName) {
     await handleExistingPackName(ctx, text);
     return;
   }
 
-  // Fallback: if emoji was requested but we couldn't get it from pack
-  if (session.mode === 'batch' && session.chosenPackAction === 'existing' && session.existingPackName && !session.emoji) {
-    // User is providing emoji manually because we couldn't fetch it
-    await handlePackEmoji(ctx, text);
-    return;
-  }
+  // DO NOT treat text as emoji if we're waiting for pack name resolution
+  // Only accept emoji if we explicitly asked for it (which shouldn't happen for existing packs anymore)
 
   // AI pack size handling (6 or 12)
   if (session.mode === 'pack' && !session.packSize && (textLower === '6' || textLower === '12')) {

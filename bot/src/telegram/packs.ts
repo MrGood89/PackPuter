@@ -23,6 +23,48 @@ export function getAddStickerLink(shortName: string): string {
   return `https://t.me/addstickers/${shortName}`;
 }
 
+/**
+ * Clean up pack name input from user
+ * Handles full links, @ prefixes, etc.
+ */
+function cleanupPackInput(input: string): string {
+  const trimmed = input.trim();
+  // Allow full link: t.me/addstickers/packname
+  const m = trimmed.match(/t\.me\/addstickers\/([a-zA-Z0-9_]+)/);
+  if (m?.[1]) return m[1];
+  return trimmed.replace(/^@/, "");
+}
+
+/**
+ * Resolve sticker set name from user input
+ * If user provides just "test", auto-append "_by_<bot_username>"
+ * If user already provided full short name, keep it
+ */
+export function resolveStickerSetName(input: string): string {
+  const raw = cleanupPackInput(input);
+
+  // If user already provided full short name (contains _by_), keep it
+  if (raw.toLowerCase().includes("_by_")) return raw;
+
+  // Otherwise append bot username
+  const bot = env.BOT_USERNAME.toLowerCase();
+  return `${raw.toLowerCase()}_by_${bot}`;
+}
+
+/**
+ * Extract emoji from sticker set response
+ * Handles both emoji_list (array) and emoji (string) formats
+ */
+export function extractStickerSetEmoji(stickerSet: any): string | null {
+  const first = stickerSet?.stickers?.[0];
+  if (!first) return null;
+
+  // Telegram sometimes returns emoji_list, sometimes emoji
+  const e1 = Array.isArray(first.emoji_list) ? first.emoji_list[0] : null;
+  const e2 = typeof first.emoji === "string" ? first.emoji : null;
+  return e1 || e2 || null;
+}
+
 async function uploadStickerAndGetFileId(
   ctx: Context,
   userId: number,
@@ -200,24 +242,20 @@ export async function addStickerToSet(
 
 export async function getStickerSetEmoji(ctx: Context, setName: string): Promise<string | null> {
   try {
+    // Resolve pack name (auto-append _by_<bot> if needed)
+    const resolvedName = resolveStickerSetName(setName);
+    console.log(`[${new Date().toISOString()}] [Packs] Resolving pack name: "${setName}" -> "${resolvedName}"`);
+
     // Get sticker set info from Telegram
     const result = await (ctx as any).telegram.callApi("getStickerSet", {
-      name: setName,
+      name: resolvedName,
     });
 
-    // Extract emoji from the first sticker in the set
-    // Stickers array contains objects with emoji_list
-    if (result?.stickers && Array.isArray(result.stickers) && result.stickers.length > 0) {
-      const firstSticker = result.stickers[0];
-      if (firstSticker?.emoji_list && Array.isArray(firstSticker.emoji_list) && firstSticker.emoji_list.length > 0) {
-        // Return the first emoji from the first sticker
-        return firstSticker.emoji_list[0];
-      }
-    }
-
-    return null;
+    // Extract emoji using helper function
+    return extractStickerSetEmoji(result);
   } catch (error: any) {
-    console.error('getStickerSetEmoji: Failed to get sticker set:', error.message);
+    const errorTimestamp = new Date().toISOString();
+    console.error(`[${errorTimestamp}] getStickerSetEmoji: Failed to get sticker set "${setName}":`, error.message);
     return null;
   }
 }

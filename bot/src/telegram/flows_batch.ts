@@ -14,9 +14,43 @@ import {
   buildPackShortName,
   getAddStickerLink,
   getStickerSetEmoji,
+  resolveStickerSetName,
 } from './packs';
 
 const MAX_BATCH_SIZE = 10;
+
+// Batch state tracking: queued vs completed files
+type BatchState = {
+  queued: number;
+  completed: number;
+  lastUploadAt: number;
+  autoProceedSent: boolean;
+  timer?: NodeJS.Timeout;
+};
+
+const batchStates = new Map<number, BatchState>();
+
+function getBatchState(userId: number): BatchState {
+  const existing = batchStates.get(userId);
+  if (existing) return existing;
+  const s: BatchState = {
+    queued: 0,
+    completed: 0,
+    lastUploadAt: Date.now(),
+    autoProceedSent: false,
+  };
+  batchStates.set(userId, s);
+  return s;
+}
+
+export function resetBatchState(userId: number) {
+  const s = getBatchState(userId);
+  if (s.timer) clearTimeout(s.timer);
+  s.queued = 0;
+  s.completed = 0;
+  s.lastUploadAt = Date.now();
+  s.autoProceedSent = false;
+}
 
 export function setupBatchConvertFlow(bot: Telegraf) {
   // Commands are now handled by router.ts
@@ -77,6 +111,13 @@ async function handleFileUpload(ctx: Context) {
     await ctx.reply('Please send a valid GIF or video file.');
     return;
   }
+
+  // Track queued file immediately
+  const userId = ctx.from!.id;
+  const st = getBatchState(userId);
+  st.queued += 1;
+  st.lastUploadAt = Date.now();
+  console.log(`[${new Date().toISOString()}] [Batch] File queued. Total queued: ${st.queued}, completed: ${st.completed}`);
 
   // Send immediate response WITHOUT awaiting - this allows handler to return immediately
   const uploadTimestamp = new Date().toISOString();
@@ -180,50 +221,45 @@ async function handleFileUpload(ctx: Context) {
         `✅ Ready: ${result.duration.toFixed(1)}s · ${result.width}x${result.height}px · ${result.kb}KB`
       );
 
-      // Auto-proceed logic: Only trigger once after ALL files are done
-      // Always cancel any existing timeout and set a new one
-      // This ensures we wait for ALL files to complete before sending the message
+      // Increment completed count
       const userId = ctx.from!.id;
-      
-      // Cancel any existing timeout for this user
-      if ((global as any).batchTimeouts && (global as any).batchTimeouts[userId]) {
-        clearTimeout((global as any).batchTimeouts[userId]);
+      const st = getBatchState(userId);
+      st.completed += 1;
+      console.log(`[${processTimestamp}] [Batch] File completed. Queued: ${st.queued}, Completed: ${st.completed}`);
+
+      // Auto-proceed logic: Check if all queued files are completed
+      // Cancel any existing timeout
+      if (st.timer) {
+        clearTimeout(st.timer);
         console.log(`[${processTimestamp}] [Batch] Cancelled previous auto-proceed timeout for user ${userId}`);
       }
-      
-      // Set a timeout that will check if all files are done
-      // This timeout will be cancelled if a new file arrives, ensuring we only proceed when truly done
-      (global as any).batchTimeouts = (global as any).batchTimeouts || {};
-      (global as any).batchTimeouts[userId] = setTimeout(async () => {
+
+      // Set a debounced timeout to check if all files are done
+      st.timer = setTimeout(async () => {
         try {
+          const idleMs = Date.now() - st.lastUploadAt;
+          const allDone = st.completed === st.queued;
           const checkSession = getSession(userId);
-          
-          // Only proceed if:
-          // 1. Still in batch mode
-          // 2. We have at least one file
-          // 3. ALL files have completed (have filePath)
-          // 4. Message hasn't been sent yet
-          const allFilesCompleted = checkSession.uploadedFiles.length > 0 && 
-                                    checkSession.uploadedFiles.every(f => f.filePath !== undefined);
-          
+
           console.log(`[${new Date().toISOString()}] [Batch] Auto-proceed check for user ${userId}:`, {
+            queued: st.queued,
+            completed: st.completed,
+            allDone,
+            idleMs,
             mode: checkSession.mode,
-            totalFiles: checkSession.uploadedFiles.length,
-            completedFiles: checkSession.uploadedFiles.filter(f => f.filePath !== undefined).length,
-            allFilesCompleted,
-            autoProceedSent: checkSession.autoProceedSent
+            autoProceedSent: st.autoProceedSent
           });
-          
-          if (checkSession.mode === 'batch' && 
-              allFilesCompleted && 
-              !checkSession.autoProceedSent) {
+
+          // Only send once, only in batch mode, only if all queued files are completed
+          // and no new upload happened in the last 2.5 seconds
+          if (!st.autoProceedSent && 
+              allDone && 
+              idleMs >= 2500 && 
+              checkSession.mode === 'batch') {
             
+            st.autoProceedSent = true;
             const autoProceedTimestamp = new Date().toISOString();
             console.log(`[${autoProceedTimestamp}] [Batch] All files completed! Sending auto-proceed message for user ${userId}`);
-            
-            // Mark as sent BEFORE sending to prevent race conditions
-            checkSession.autoProceedSent = true;
-            setSession(userId, checkSession);
             
             await ctx.reply(
               '✅ All files converted! Reply with:\n' +
@@ -234,21 +270,16 @@ async function handleFileUpload(ctx: Context) {
           } else {
             const checkTimestamp = new Date().toISOString();
             console.log(`[${checkTimestamp}] [Batch] Not ready for auto-proceed:`, {
-              mode: checkSession.mode,
-              allFilesCompleted,
-              autoProceedSent: checkSession.autoProceedSent,
-              fileCount: checkSession.uploadedFiles.length
+              allDone,
+              idleMs,
+              autoProceedSent: st.autoProceedSent,
+              mode: checkSession.mode
             });
           }
         } catch (error: any) {
           console.error(`[Batch] Error in auto-proceed for user ${userId}:`, error);
-        } finally {
-          // Clean up timeout reference
-          if ((global as any).batchTimeouts && (global as any).batchTimeouts[userId]) {
-            delete (global as any).batchTimeouts[userId];
-          }
         }
-      }, 3000); // 3 second delay - gives time for all parallel processes to complete
+      }, 2600); // 2.6 second debounce - ensures no new uploads happened
     } catch (error: any) {
       const errorTimestamp = new Date().toISOString();
       console.error(`[${errorTimestamp}] [Batch] ===== ERROR in background processing =====`);
@@ -460,20 +491,27 @@ export async function handleExistingPackName(ctx: Context, packName: string) {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] [Pack Creation] Fetching emoji from existing pack: ${packName}`);
 
-  // Get emoji from existing pack
+  // Resolve pack name (auto-append _by_<bot> if needed)
+  const resolvedPackName = resolveStickerSetName(packName);
+  console.log(`[${timestamp}] [Pack Creation] Resolved pack name: "${packName}" -> "${resolvedPackName}"`);
+
+  // Get emoji from existing pack using resolved name
+  // getStickerSetEmoji already handles name resolution internally, but we need resolved name for storage
   const emoji = await getStickerSetEmoji(ctx, packName);
   
   if (!emoji) {
-    console.error(`[${timestamp}] [Pack Creation] Failed to get emoji from pack, asking user`);
-    setSession(ctx.from!.id, { existingPackName: packName });
-    await ctx.reply('❌ Could not read emoji from pack. Please send the emoji used in this pack:', FORCE_REPLY);
+    console.error(`[${timestamp}] [Pack Creation] Failed to get emoji from pack "${resolvedPackName}"`);
+    await ctx.reply(
+      `❌ I couldn't find that sticker pack.\n` +
+      `Send the full pack link (t.me/addstickers/...) or the full pack name ending with _by_${env.BOT_USERNAME.toLowerCase()}`
+    );
     return;
   }
 
   console.log(`[${timestamp}] [Pack Creation] Got emoji from pack: ${emoji}`);
   
-  // Set both pack name and emoji, then proceed directly to adding stickers
-  setSession(ctx.from!.id, { existingPackName: packName, emoji });
+  // Set both resolved pack name and emoji, then proceed directly to adding stickers
+  setSession(ctx.from!.id, { existingPackName: resolvedPackName, emoji });
   
   // Proceed directly to adding stickers (skip emoji prompt)
   await handlePackEmoji(ctx, emoji);
