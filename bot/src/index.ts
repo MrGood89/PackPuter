@@ -1,6 +1,7 @@
 import { Telegraf } from 'telegraf';
 import { env } from './env';
-import { REPLY_OPTIONS } from './telegram/menus';
+import { REMOVE_KEYBOARD, FORCE_REPLY } from './telegram/menus';
+import { mainMenuKeyboard } from './telegram/menu';
 import { runCommand, CommandKey } from './telegram/router';
 import { setupBatchConvertFlow, handlePackTitle, handlePackEmoji, handleExistingPackName } from './telegram/flows_batch';
 import { setupSingleConvertFlow } from './telegram/flows_convert';
@@ -27,21 +28,24 @@ process.on('uncaughtException', (error) => {
   process.exit(1);
 });
 
-// Start command - uses router
+// Start command - remove keyboard then show inline menu
 bot.start(async (ctx) => {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] [Start] /start command received from user ${ctx.from!.id}`);
   
-  // CRITICAL: Force remove any existing ReplyKeyboard before showing menu
-  // Use reply with remove_keyboard to ensure it's removed
-  try {
-    await ctx.reply('', REPLY_OPTIONS);
-  } catch (error) {
-    // Ignore errors - keyboard might not exist
-    console.log(`[${timestamp}] [Start] Could not remove keyboard (non-critical):`, error);
-  }
+  // CRITICAL: Remove any existing ReplyKeyboard (must use non-empty text!)
+  await ctx.reply(' ', REMOVE_KEYBOARD);
   
-  await runCommand(ctx, 'start');
+  // Now show inline menu
+  await ctx.reply(
+    'Welcome to PackPuter! 🧠📦\n\n' +
+    'I can help you:\n' +
+    '• Convert GIFs/videos to Telegram stickers\n' +
+    '• Generate AI-powered animated stickers\n' +
+    '• Create sticker packs automatically\n\n' +
+    'Choose an option from the menu:',
+    mainMenuKeyboard()
+  );
 });
 
 // Slash commands - all use the same router
@@ -128,13 +132,13 @@ bot.on('text', async (ctx) => {
     if (textLower === 'new') {
       console.log(`[${timestamp}] [Text Handler] User chose to create new pack`);
       setSession(ctx.from!.id, { chosenPackAction: 'new' });
-      await ctx.reply('What should the pack title be?', REPLY_OPTIONS);
+      await ctx.reply('What should the pack title be?', FORCE_REPLY);
       return;
     } else if (textLower.startsWith('existing ')) {
       const packName = text.substring(9).trim();
       console.log(`[${timestamp}] [Text Handler] User chose to add to existing pack: ${packName}`);
       setSession(ctx.from!.id, { chosenPackAction: 'existing', existingPackName: packName });
-      await ctx.reply('Choose one emoji to apply to all stickers:', REPLY_OPTIONS);
+      await ctx.reply('Choose one emoji to apply to all stickers:', FORCE_REPLY);
       return;
     }
   }
@@ -162,7 +166,7 @@ bot.on('text', async (ctx) => {
     const size = parseInt(textLower);
     console.log(`[${timestamp}] [Text Handler] User chose pack size: ${size}`);
     setSession(ctx.from!.id, { packSize: size });
-    await ctx.reply('Choose a theme: Reply with "degen", "wholesome", or "builder"', REPLY_OPTIONS);
+    await ctx.reply('Choose a theme: Reply with "degen", "wholesome", or "builder"', FORCE_REPLY);
     return;
   }
 
@@ -170,7 +174,7 @@ bot.on('text', async (ctx) => {
   if (session.mode === 'pack' && session.packSize && !session.theme && (textLower === 'degen' || textLower === 'wholesome' || textLower === 'builder')) {
     console.log(`[${timestamp}] [Text Handler] User chose theme: ${textLower}`);
     setSession(ctx.from!.id, { theme: textLower });
-    await ctx.reply('Send a base image for the pack (PNG preferred).', REPLY_OPTIONS);
+    await ctx.reply('Send a base image for the pack (PNG preferred).');
     return;
   }
 
@@ -189,7 +193,7 @@ bot.on('text', async (ctx) => {
   // AI pack title handling
   if (session.mode === 'pack' && session.uploadedFiles.length > 0 && !session.packTitle) {
     setSession(ctx.from!.id, { packTitle: text });
-    await ctx.reply('Choose one emoji to apply to all stickers:', REPLY_OPTIONS);
+    await ctx.reply('Choose one emoji to apply to all stickers:', FORCE_REPLY);
     return;
   }
 

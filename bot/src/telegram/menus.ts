@@ -1,14 +1,19 @@
-import { Markup } from 'telegraf';
-import { env } from '../env';
+// Keyboard removal and reply options
+// NO ReplyKeyboard creation - only removal helpers
 
-// Remove keyboard helper - use this to remove any existing keyboards
-export const removeKeyboard = Markup.removeKeyboard();
+export const REMOVE_KEYBOARD = {
+  reply_markup: { remove_keyboard: true }
+};
 
-// Helper to ensure all replies remove keyboards
-// Use Telegraf's Markup.removeKeyboard() which returns the correct type
-export const REPLY_OPTIONS = Markup.removeKeyboard();
+export const FORCE_REPLY = {
+  reply_markup: { force_reply: true }
+};
+
+// Standard reply options (no keyboard, disable web preview)
+export const DEFAULT_REPLY_OPTS = {
+  disable_web_page_preview: true
+};
 
 export function getAddStickerLink(shortName: string): string {
   return `https://t.me/addstickers/${shortName}`;
 }
-

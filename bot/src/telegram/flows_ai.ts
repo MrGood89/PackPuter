@@ -7,7 +7,7 @@ import { isValidImageFile } from '../util/validate';
 import { getTempFilePath, cleanupFile } from '../util/file';
 import { workerClient } from '../services/workerClient';
 import { memeputerClient } from '../services/memeputerClient';
-import { getAddStickerLink, REPLY_OPTIONS } from './menus';
+import { getAddStickerLink, FORCE_REPLY } from './menus';
 import {
   createStickerSet,
   addStickerToSet,
@@ -60,12 +60,12 @@ async function handleAIStickerMaker(ctx: Context) {
   }
 
   if (!fileId || !mimeType || !isValidImageFile(mimeType)) {
-    await ctx.reply('Please send a valid image file (PNG or JPG).', REPLY_OPTIONS);
+    await ctx.reply('Please send a valid image file (PNG or JPG).');
     return;
   }
 
   // Send immediate response
-  const processingMsg = await ctx.reply('⏳ Downloading image...', REPLY_OPTIONS);
+  const processingMsg = await ctx.reply('⏳ Downloading image...');
   
   // Process asynchronously to avoid blocking
   setImmediate(async () => {
@@ -83,12 +83,11 @@ async function handleAIStickerMaker(ctx: Context) {
 
       await ctx.reply(
         'What is this project/coin/mascot about? (vibe, inside jokes, do\'s/don\'ts, colors, keywords)\n\nOr send /skip to skip.',
-        REPLY_OPTIONS
       );
     } catch (error: any) {
       console.error('Image download error:', error);
       try {
-        await ctx.reply('❌ Failed to download image.', REPLY_OPTIONS);
+        await ctx.reply('❌ Failed to download image.');
       } catch (replyError) {
         console.error('Failed to send error message:', replyError);
       }
@@ -106,7 +105,7 @@ export async function handleProjectContext(ctx: Context, text: string) {
     setSession(ctx.from!.id, { projectContext: text });
   }
 
-  await ctx.reply('Choose a template. Reply with one of: GM, GN, LFG, HIGHER, HODL, WAGMI, NGMI, SER, REKT, ALPHA', REPLY_OPTIONS);
+  await ctx.reply('Choose a template. Reply with one of: GM, GN, LFG, HIGHER, HODL, WAGMI, NGMI, SER, REKT, ALPHA', FORCE_REPLY);
 }
 
 export async function handleTemplate(ctx: Context, template: string) {
@@ -116,14 +115,14 @@ export async function handleTemplate(ctx: Context, template: string) {
   setSession(ctx.from!.id, { chosenTemplate: template });
 
   // Send immediate response
-  const processingMsg = await ctx.reply('🎨 Generating sticker with AI...', REPLY_OPTIONS);
+  const processingMsg = await ctx.reply('🎨 Generating sticker with AI...');
   
   // Process asynchronously to avoid blocking
   setImmediate(async () => {
     try {
       const baseImage = session.uploadedFiles[0];
       if (!baseImage.filePath || !fs.existsSync(baseImage.filePath)) {
-        await ctx.reply('❌ Base image not found.', REPLY_OPTIONS);
+        await ctx.reply('❌ Base image not found.');
         return;
       }
 
@@ -139,7 +138,7 @@ export async function handleTemplate(ctx: Context, template: string) {
       await ctx.reply('✅ Sticker generated! Reply with:\n' +
         '• "new" to create a new pack\n' +
         '• "existing <pack_name>" to add to existing pack',
-        REPLY_OPTIONS);
+);
 
       // Store the result for pack creation
       session.uploadedFiles = [
@@ -161,7 +160,7 @@ export async function handleTemplate(ctx: Context, template: string) {
     } catch (error: any) {
       console.error('AI render error:', error);
       try {
-        await ctx.reply('❌ Failed to generate sticker.', REPLY_OPTIONS);
+        await ctx.reply('❌ Failed to generate sticker.');
       } catch (replyError) {
         console.error('Failed to send error message:', replyError);
       }
@@ -186,12 +185,12 @@ async function handleAIGeneratePack(ctx: Context) {
   }
 
   if (!fileId || !mimeType || !isValidImageFile(mimeType)) {
-    await ctx.reply('Please send a valid image file (PNG or JPG).', REPLY_OPTIONS);
+    await ctx.reply('Please send a valid image file (PNG or JPG).');
     return;
   }
 
   // Send immediate response
-  const processingMsg = await ctx.reply('🎨 Generating sticker pack with AI...', REPLY_OPTIONS);
+  const processingMsg = await ctx.reply('🎨 Generating sticker pack with AI...');
   
   // Store values before async callback (TypeScript safety)
   const packSize = session.packSize;
@@ -199,7 +198,7 @@ async function handleAIGeneratePack(ctx: Context) {
   const projectContext = session.projectContext;
   
   if (!packSize || !theme) {
-    await ctx.reply('❌ Missing pack size or theme.', REPLY_OPTIONS);
+    await ctx.reply('❌ Missing pack size or theme.');
     return;
   }
   
@@ -225,7 +224,7 @@ async function handleAIGeneratePack(ctx: Context) {
       const stickerPaths: string[] = [];
 
       for (let i = 0; i < blueprints.length; i++) {
-        await ctx.reply(`Generating sticker ${i + 1}/${blueprints.length}...`, REPLY_OPTIONS);
+        await ctx.reply(`Generating sticker ${i + 1}/${blueprints.length}...`);
 
         const blueprintJson = JSON.stringify(blueprints[i]);
         const result = await workerClient.aiRender(baseImagePath, blueprintJson);
@@ -233,7 +232,7 @@ async function handleAIGeneratePack(ctx: Context) {
       }
 
       // Ask for pack title
-      await ctx.reply('What should the pack title be?', REPLY_OPTIONS);
+      await ctx.reply('What should the pack title be?', FORCE_REPLY);
       const currentSession = getSession(ctx.from!.id);
       setSession(ctx.from!.id, {
         ...currentSession,
@@ -245,7 +244,7 @@ async function handleAIGeneratePack(ctx: Context) {
     } catch (error: any) {
       console.error('AI pack generation error:', error);
       try {
-        await ctx.reply('❌ Failed to generate pack.', REPLY_OPTIONS);
+        await ctx.reply('❌ Failed to generate pack.');
       } catch (replyError) {
         console.error('Failed to send error message:', replyError);
       }

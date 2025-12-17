@@ -7,7 +7,7 @@ import { isValidVideoFile } from '../util/validate';
 import { getTempFilePath, cleanupFile } from '../util/file';
 import { workerClient } from '../services/workerClient';
 import { createJob } from '../services/supabaseClient';
-import { REPLY_OPTIONS } from './menus';
+// No keyboard imports needed
 
 export function setupSingleConvertFlow(bot: any) {
   // Commands are now handled by router.ts
@@ -47,7 +47,7 @@ async function handleSingleFile(ctx: Context) {
   }
 
   if (!fileId || !mimeType || !isValidVideoFile(mimeType)) {
-    await ctx.reply('Please send a valid GIF or video file.', REPLY_OPTIONS);
+    await ctx.reply('Please send a valid GIF or video file.');
     return;
   }
 
@@ -61,7 +61,7 @@ async function handleSingleFile(ctx: Context) {
 
   if (!jobId) {
     // Fallback: process immediately if Supabase not available
-    await ctx.reply('⏳ Converting...', REPLY_OPTIONS);
+    await ctx.reply('⏳ Converting...');
     setImmediate(async () => {
       try {
         const file = await ctx.telegram.getFile(fileId);
@@ -84,12 +84,12 @@ async function handleSingleFile(ctx: Context) {
         resetSession(ctx.from!.id);
       } catch (error: any) {
         console.error('Conversion error:', error);
-        await ctx.reply('❌ Failed to convert file.', REPLY_OPTIONS);
+        await ctx.reply('❌ Failed to convert file.');
       }
     });
   } else {
     // Job created successfully - processor will handle it
-    await ctx.reply('⏳ Processing your file... I\'ll send it when ready!', REPLY_OPTIONS);
+    await ctx.reply('⏳ Processing your file... I\'ll send it when ready!');
     resetSession(ctx.from!.id);
   }
 }

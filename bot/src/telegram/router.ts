@@ -1,6 +1,6 @@
 import { Context } from 'telegraf';
 import { getSession, setSession, resetSession } from './sessions';
-import { REPLY_OPTIONS } from './menus';
+import { REMOVE_KEYBOARD, FORCE_REPLY } from './menus';
 
 export type CommandKey = 'batch' | 'convert' | 'ai' | 'pack' | 'done' | 'help' | 'mypacks' | 'start';
 
@@ -20,10 +20,7 @@ export async function runCommand(ctx: Context, key: CommandKey): Promise<void> {
         
         // CRITICAL: First remove any existing ReplyKeyboard
         // Send a message with remove_keyboard to clear any cached keyboards
-        await ctx.reply(
-          'Welcome to PackPuter! 🎨',
-          REPLY_OPTIONS
-        );
+        await ctx.reply(' ', REMOVE_KEYBOARD);
         
         // Now send the menu with inline keyboard (separate message)
         await ctx.reply(
@@ -41,8 +38,7 @@ export async function runCommand(ctx: Context, key: CommandKey): Promise<void> {
         resetSession(ctx.from!.id);
         setSession(ctx.from!.id, { mode: 'batch' });
         await ctx.reply(
-          'Send up to 10 GIFs/videos. I\'ll convert each into Telegram-ready stickers.\nWhen finished, use /done command.',
-          REPLY_OPTIONS
+          'Send up to 10 GIFs/videos. I\'ll convert each into Telegram-ready stickers.\nWhen finished, use /done command.'
         );
         break;
       }
@@ -51,8 +47,7 @@ export async function runCommand(ctx: Context, key: CommandKey): Promise<void> {
         resetSession(ctx.from!.id);
         setSession(ctx.from!.id, { mode: 'convert' });
         await ctx.reply(
-          'Send a GIF or video file to convert to a Telegram sticker.',
-          REPLY_OPTIONS
+          'Send a GIF or video file to convert to a Telegram sticker.'
         );
         break;
       }
@@ -61,8 +56,7 @@ export async function runCommand(ctx: Context, key: CommandKey): Promise<void> {
         resetSession(ctx.from!.id);
         setSession(ctx.from!.id, { mode: 'ai' });
         await ctx.reply(
-          'Send a base image (PNG preferred, JPG also accepted).',
-          REPLY_OPTIONS
+          'Send a base image (PNG preferred, JPG also accepted).'
         );
         break;
       }
@@ -70,14 +64,14 @@ export async function runCommand(ctx: Context, key: CommandKey): Promise<void> {
       case 'pack': {
         resetSession(ctx.from!.id);
         setSession(ctx.from!.id, { mode: 'pack' });
-        await ctx.reply('How many stickers? Reply with "6" or "12"', REPLY_OPTIONS);
+        await ctx.reply('How many stickers? Reply with "6" or "12"', FORCE_REPLY);
         break;
       }
 
       case 'done': {
         const session = getSession(ctx.from!.id);
         if (session.mode !== 'batch' || session.uploadedFiles.length === 0) {
-          await ctx.reply('No files to process. Use /batch to start.', REPLY_OPTIONS);
+          await ctx.reply('No files to process. Use /batch to start.');
           return;
         }
 
@@ -85,7 +79,7 @@ export async function runCommand(ctx: Context, key: CommandKey): Promise<void> {
         const fs = require('fs');
         const missingFiles = session.uploadedFiles.filter(f => !f.filePath || !fs.existsSync(f.filePath));
         if (missingFiles.length > 0) {
-          await ctx.reply(`❌ ${missingFiles.length} file(s) are missing. Please convert them again.`, REPLY_OPTIONS);
+          await ctx.reply(`❌ ${missingFiles.length} file(s) are missing. Please convert them again.`);
           return;
         }
 
@@ -93,7 +87,7 @@ export async function runCommand(ctx: Context, key: CommandKey): Promise<void> {
           '✅ All files ready! Reply with:\n' +
           '• "new" to create a new pack\n' +
           '• "existing <pack_name>" to add to existing pack',
-          REPLY_OPTIONS
+          FORCE_REPLY
         );
         break;
       }
@@ -112,27 +106,26 @@ export async function runCommand(ctx: Context, key: CommandKey): Promise<void> {
           '• ≤ 3 seconds\n' +
           '• ≤ 30 fps\n' +
           '• 512px max dimension\n' +
-          '• ≤ 256 KB',
-          REPLY_OPTIONS
+          '• ≤ 256 KB'
         );
         break;
       }
 
       case 'mypacks': {
-        await ctx.reply('This feature will be available soon!', REPLY_OPTIONS);
+        await ctx.reply('This feature will be available soon!');
         break;
       }
 
       default: {
         console.error(`[${timestamp}] [Router] Unknown command: ${key}`);
-        await ctx.reply('Unknown command. Use /help for available commands.', REPLY_OPTIONS);
+        await ctx.reply('Unknown command. Use /help for available commands.');
       }
     }
   } catch (error: any) {
     const errorTimestamp = new Date().toISOString();
     console.error(`[${errorTimestamp}] [Router] Error executing command ${key}:`, error);
     try {
-      await ctx.reply('❌ An error occurred. Please try again.', REPLY_OPTIONS);
+      await ctx.reply('❌ An error occurred. Please try again.');
     } catch (replyError) {
       console.error(`[${errorTimestamp}] [Router] Failed to send error message:`, replyError);
     }
