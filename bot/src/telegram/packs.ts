@@ -15,7 +15,7 @@ function slugify(input: string): string {
 
 export function buildPackShortName(title: string): string {
   const base = slugify(title) || "pack";
-  const bot = env.BOT_USERNAME.toLowerCase(); // MUST be lowercase
+  const bot = env.BOT_USERNAME.toLowerCase();
   return `${base}_by_${bot}`;
 }
 
@@ -23,8 +23,37 @@ export function getAddStickerLink(shortName: string): string {
   return `https://t.me/addstickers/${shortName}`;
 }
 
-function inputFileFromPath(filePath: string) {
-  return { source: fs.createReadStream(filePath) };
+async function uploadStickerAndGetFileId(
+  ctx: Context,
+  userId: number,
+  filePath: string
+): Promise<string> {
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`uploadStickerAndGetFileId: file does not exist: ${filePath}`);
+  }
+
+  const fileSize = fs.statSync(filePath).size;
+  console.log('uploadStickerAndGetFileId: Uploading sticker file:', {
+    filePath,
+    fileSize,
+    fileSizeKB: Math.round(fileSize / 1024),
+    userId,
+  });
+
+  const res = await (ctx as any).telegram.callApi("uploadStickerFile", {
+    user_id: userId,
+    sticker: { source: fs.createReadStream(filePath) }, // top-level -> multipart works
+    sticker_format: "video",
+  });
+
+  // Telegram returns { file_id, file_unique_id, file_size? }
+  const fileId = res?.file_id;
+  if (!fileId) {
+    throw new Error(`uploadStickerAndGetFileId: missing file_id in response: ${JSON.stringify(res)}`);
+  }
+
+  console.log('uploadStickerAndGetFileId: Successfully uploaded, file_id:', fileId);
+  return fileId;
 }
 
 export async function createStickerSet(
@@ -41,36 +70,38 @@ export async function createStickerSet(
       return false;
     }
 
-    const fileSize = fs.statSync(firstStickerPath).size;
+    const userId = (ctx as any).from?.id;
+    if (!userId) {
+      throw new Error("createStickerSet: ctx.from.id missing");
+    }
+
     console.log('createStickerSet: Creating sticker set with:', {
       title,
       shortName,
       emoji,
       filePath: firstStickerPath,
       fileExists: true,
-      fileSize,
-      fileSizeKB: Math.round(fileSize / 1024),
+      fileSize: fs.statSync(firstStickerPath).size,
+      userId,
     });
 
-    const userId = (ctx as any).from?.id;
-    if (!userId) {
-      throw new Error("createStickerSet: ctx.from.id missing");
-    }
+    // 1) Upload file to Telegram -> get file_id (string)
+    const firstStickerFileId = await uploadStickerAndGetFileId(ctx, userId, firstStickerPath);
 
-    const payload = {
+    // 2) Create set using STRING file_id
+    await (ctx as any).telegram.callApi("createNewStickerSet", {
       user_id: userId,
       name: shortName,
       title,
       sticker_format: "video",
       stickers: [
         {
-          sticker: inputFileFromPath(firstStickerPath),
+          sticker: firstStickerFileId, // MUST be string in JSON mode
           emoji_list: [emoji],
         },
       ],
-    };
+    });
 
-    await (ctx as any).telegram.callApi("createNewStickerSet", payload);
     console.log('createStickerSet: Successfully created sticker set:', shortName);
     return true;
   } catch (error: any) {
@@ -115,31 +146,33 @@ export async function addStickerToSet(
       return false;
     }
 
-    const fileSize = fs.statSync(stickerPath).size;
-    console.log('addStickerToSet: Adding sticker to set:', {
-      shortName,
-      emoji,
-      filePath: stickerPath,
-      fileExists: true,
-      fileSize,
-      fileSizeKB: Math.round(fileSize / 1024),
-    });
-
     const userId = (ctx as any).from?.id;
     if (!userId) {
       throw new Error("addStickerToSet: ctx.from.id missing");
     }
 
-    const payload = {
+    console.log('addStickerToSet: Adding sticker to set:', {
+      shortName,
+      emoji,
+      filePath: stickerPath,
+      fileExists: true,
+      fileSize: fs.statSync(stickerPath).size,
+    });
+
+    // upload -> file_id
+    const stickerFileId = await uploadStickerAndGetFileId(ctx, userId, stickerPath);
+
+    // add using file_id string
+    await (ctx as any).telegram.callApi("addStickerToSet", {
       user_id: userId,
       name: shortName,
       sticker: {
-        sticker: inputFileFromPath(stickerPath),
+        sticker: stickerFileId, // string
         emoji_list: [emoji],
       },
-    };
+    });
 
-    await (ctx as any).telegram.callApi("addStickerToSet", payload);
+    console.log('addStickerToSet: Successfully added sticker to set:', shortName);
     return true;
   } catch (error: any) {
     const errorTimestamp = new Date().toISOString();
