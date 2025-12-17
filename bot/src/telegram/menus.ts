@@ -1,13 +1,12 @@
+import { Markup } from 'telegraf';
+
 // Keyboard removal and reply options
 // NO ReplyKeyboard creation - only removal helpers
+// Use Telegraf's Markup helpers to get correct literal types
 
-export const REMOVE_KEYBOARD = {
-  reply_markup: { remove_keyboard: true }
-};
+export const REMOVE_KEYBOARD = Markup.removeKeyboard();
 
-export const FORCE_REPLY = {
-  reply_markup: { force_reply: true }
-};
+export const FORCE_REPLY = Markup.forceReply();
 
 // Standard reply options (no keyboard, disable web preview)
 export const DEFAULT_REPLY_OPTS = {
