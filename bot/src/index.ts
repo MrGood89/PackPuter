@@ -29,6 +29,18 @@ process.on('uncaughtException', (error) => {
 
 // Start command - uses router
 bot.start(async (ctx) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] [Start] /start command received from user ${ctx.from!.id}`);
+  
+  // CRITICAL: Force remove any existing ReplyKeyboard before showing menu
+  // Use reply with remove_keyboard to ensure it's removed
+  try {
+    await ctx.reply('', REPLY_OPTIONS);
+  } catch (error) {
+    // Ignore errors - keyboard might not exist
+    console.log(`[${timestamp}] [Start] Could not remove keyboard (non-critical):`, error);
+  }
+  
   await runCommand(ctx, 'start');
 });
 
@@ -70,11 +82,23 @@ bot.action(/^cmd:(.+)$/, async (ctx) => {
   // Acknowledge the callback to remove loading spinner
   await ctx.answerCbQuery();
   
-  // Optionally remove buttons from the clicked message to reduce clutter
+  // Remove buttons from the clicked message to reduce clutter
   try {
     await ctx.editMessageReplyMarkup(undefined);
   } catch (error) {
     // Ignore errors if message can't be edited (e.g., already edited)
+    console.log(`[${timestamp}] [Button] Could not remove inline keyboard (non-critical):`, error);
+  }
+  
+  // CRITICAL: Also remove any ReplyKeyboard that might be showing
+  try {
+    await ctx.telegram.sendMessage(ctx.chat!.id, '', {
+      reply_markup: {
+        remove_keyboard: true
+      }
+    });
+  } catch (error) {
+    // Ignore - keyboard might not exist
   }
   
   // Execute the command using the same router

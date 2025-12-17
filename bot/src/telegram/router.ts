@@ -17,8 +17,15 @@ export async function runCommand(ctx: Context, key: CommandKey): Promise<void> {
       case 'start': {
         // Import here to avoid circular dependencies
         const { mainMenuKeyboard } = await import('./menu');
-        // Remove any old reply keyboards
-        await ctx.reply('Welcome to PackPuter! 🎨', REPLY_OPTIONS);
+        
+        // CRITICAL: First remove any existing ReplyKeyboard
+        // Send a message with remove_keyboard to clear any cached keyboards
+        await ctx.reply(
+          'Welcome to PackPuter! 🎨',
+          REPLY_OPTIONS
+        );
+        
+        // Now send the menu with inline keyboard (separate message)
         await ctx.reply(
           'I can help you:\n' +
           '• Convert GIFs/videos to Telegram stickers\n' +
