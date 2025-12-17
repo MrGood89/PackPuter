@@ -137,8 +137,9 @@ bot.on('text', async (ctx) => {
     } else if (textLower.startsWith('existing ')) {
       const packName = text.substring(9).trim();
       console.log(`[${timestamp}] [Text Handler] User chose to add to existing pack: ${packName}`);
-      setSession(ctx.from!.id, { chosenPackAction: 'existing', existingPackName: packName });
-      await ctx.reply('Choose one emoji to apply to all stickers:', FORCE_REPLY);
+      setSession(ctx.from!.id, { chosenPackAction: 'existing' });
+      // handleExistingPackName will fetch emoji from pack and proceed
+      await handleExistingPackName(ctx, packName);
       return;
     }
   }
@@ -149,15 +150,22 @@ bot.on('text', async (ctx) => {
     return;
   }
 
-  // Pack emoji handling
-  if (session.mode === 'batch' && session.packTitle && !session.emoji) {
+  // Pack emoji handling (only for new packs)
+  if (session.mode === 'batch' && session.chosenPackAction === 'new' && session.packTitle && !session.emoji) {
     await handlePackEmoji(ctx, text);
     return;
   }
 
-  // Existing pack name handling (if user types pack name directly)
+  // Existing pack name handling (if user types pack name directly after "existing")
   if (session.mode === 'batch' && session.chosenPackAction === 'existing' && !session.existingPackName) {
     await handleExistingPackName(ctx, text);
+    return;
+  }
+
+  // Fallback: if emoji was requested but we couldn't get it from pack
+  if (session.mode === 'batch' && session.chosenPackAction === 'existing' && session.existingPackName && !session.emoji) {
+    // User is providing emoji manually because we couldn't fetch it
+    await handlePackEmoji(ctx, text);
     return;
   }
 

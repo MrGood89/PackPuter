@@ -13,6 +13,7 @@ import {
   getMyStickerSets,
   buildPackShortName,
   getAddStickerLink,
+  getStickerSetEmoji,
 } from './packs';
 
 const MAX_BATCH_SIZE = 10;
@@ -456,7 +457,25 @@ export async function handleExistingPackName(ctx: Context, packName: string) {
   const session = getSession(ctx.from!.id);
   if (session.mode !== 'batch' || session.chosenPackAction !== 'existing') return;
 
-  setSession(ctx.from!.id, { existingPackName: packName });
-  await ctx.reply('Choose one emoji to apply to all stickers:', FORCE_REPLY);
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] [Pack Creation] Fetching emoji from existing pack: ${packName}`);
+
+  // Get emoji from existing pack
+  const emoji = await getStickerSetEmoji(ctx, packName);
+  
+  if (!emoji) {
+    console.error(`[${timestamp}] [Pack Creation] Failed to get emoji from pack, asking user`);
+    setSession(ctx.from!.id, { existingPackName: packName });
+    await ctx.reply('❌ Could not read emoji from pack. Please send the emoji used in this pack:', FORCE_REPLY);
+    return;
+  }
+
+  console.log(`[${timestamp}] [Pack Creation] Got emoji from pack: ${emoji}`);
+  
+  // Set both pack name and emoji, then proceed directly to adding stickers
+  setSession(ctx.from!.id, { existingPackName: packName, emoji });
+  
+  // Proceed directly to adding stickers (skip emoji prompt)
+  await handlePackEmoji(ctx, emoji);
 }
 

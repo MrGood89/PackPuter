@@ -198,6 +198,30 @@ export async function addStickerToSet(
   }
 }
 
+export async function getStickerSetEmoji(ctx: Context, setName: string): Promise<string | null> {
+  try {
+    // Get sticker set info from Telegram
+    const result = await (ctx as any).telegram.callApi("getStickerSet", {
+      name: setName,
+    });
+
+    // Extract emoji from the first sticker in the set
+    // Stickers array contains objects with emoji_list
+    if (result?.stickers && Array.isArray(result.stickers) && result.stickers.length > 0) {
+      const firstSticker = result.stickers[0];
+      if (firstSticker?.emoji_list && Array.isArray(firstSticker.emoji_list) && firstSticker.emoji_list.length > 0) {
+        // Return the first emoji from the first sticker
+        return firstSticker.emoji_list[0];
+      }
+    }
+
+    return null;
+  } catch (error: any) {
+    console.error('getStickerSetEmoji: Failed to get sticker set:', error.message);
+    return null;
+  }
+}
+
 export async function getMyStickerSets(ctx: Context): Promise<string[]> {
   // Telegram Bot API doesn't provide a way to list sticker sets created by a bot
   // Users must manually enter the pack name when adding to existing pack
