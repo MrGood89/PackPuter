@@ -1,6 +1,7 @@
 import { Telegraf } from 'telegraf';
 import { env } from './env';
 import { REPLY_OPTIONS } from './telegram/menus';
+import { runCommand, CommandKey } from './telegram/router';
 import { setupBatchConvertFlow, handlePackTitle, handlePackEmoji, handleExistingPackName } from './telegram/flows_batch';
 import { setupSingleConvertFlow } from './telegram/flows_convert';
 import { setupAIFlows, handleProjectContext, handleTemplate } from './telegram/flows_ai';
@@ -9,49 +10,78 @@ import { startJobProcessor, stopJobProcessor } from './services/jobProcessor';
 
 const bot = new Telegraf(env.TELEGRAM_BOT_TOKEN);
 
-// Start command
+// Enable Telegraf debug logging if in development
+if (process.env.NODE_ENV !== 'production') {
+  process.env.DEBUG = 'telegraf:*';
+}
+
+// Log unhandled errors
+process.on('unhandledRejection', (error) => {
+  const timestamp = new Date().toISOString();
+  console.error(`[${timestamp}] [UnhandledRejection]`, error);
+});
+
+process.on('uncaughtException', (error) => {
+  const timestamp = new Date().toISOString();
+  console.error(`[${timestamp}] [UncaughtException]`, error);
+  process.exit(1);
+});
+
+// Start command - uses router
 bot.start(async (ctx) => {
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] [Start] /start command received from user ${ctx.from!.id}`);
-  
-  await ctx.reply(
-    `Welcome to PackPuter! 🎨\n\n` +
-    `Commands:\n` +
-    `/batch - Convert up to 10 files and create a pack\n` +
-    `/convert - Convert a single file to sticker\n` +
-    `/ai - AI Sticker Maker\n` +
-    `/pack - AI Generate Pack (6 or 12 stickers)\n` +
-    `/done - Finish batch and create pack\n` +
-    `/help - Show help\n\n` +
-    `Type a command to get started!`,
-    REPLY_OPTIONS
-  );
+  await runCommand(ctx, 'start');
 });
 
-// Help command
+// Slash commands - all use the same router
+bot.command('batch', async (ctx) => {
+  await runCommand(ctx, 'batch');
+});
+
+bot.command('convert', async (ctx) => {
+  await runCommand(ctx, 'convert');
+});
+
+bot.command('ai', async (ctx) => {
+  await runCommand(ctx, 'ai');
+});
+
+bot.command('pack', async (ctx) => {
+  await runCommand(ctx, 'pack');
+});
+
+bot.command('done', async (ctx) => {
+  await runCommand(ctx, 'done');
+});
+
 bot.command('help', async (ctx) => {
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] [Help] /help command received from user ${ctx.from!.id}`);
-  
-  await ctx.reply(
-    `PackPuter Help 📖\n\n` +
-    `Commands:\n` +
-    `/batch - Upload up to 10 GIFs/videos, convert them all, and create a pack\n` +
-    `/convert - Convert one file to a sticker\n` +
-    `/ai - AI Sticker Maker: Send a base image, choose a template\n` +
-    `/pack - AI Generate Pack: Generate a full sticker pack (6 or 12 stickers)\n` +
-    `/done - Finish batch and proceed to pack creation\n\n` +
-    `All stickers meet Telegram requirements:\n` +
-    `• WEBM VP9 format\n` +
-    `• ≤ 3 seconds\n` +
-    `• ≤ 30 fps\n` +
-    `• 512px max dimension\n` +
-    `• ≤ 256 KB`,
-    REPLY_OPTIONS
-  );
+  await runCommand(ctx, 'help');
 });
 
-// Setup flows
+bot.command('mypacks', async (ctx) => {
+  await runCommand(ctx, 'mypacks');
+});
+
+// Inline keyboard button callbacks - trigger same commands
+bot.action(/^cmd:(.+)$/, async (ctx) => {
+  const key = ctx.match[1] as CommandKey;
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] [Button] User ${ctx.from!.id} clicked button: cmd:${key}`);
+  
+  // Acknowledge the callback to remove loading spinner
+  await ctx.answerCbQuery();
+  
+  // Optionally remove buttons from the clicked message to reduce clutter
+  try {
+    await ctx.editMessageReplyMarkup(undefined);
+  } catch (error) {
+    // Ignore errors if message can't be edited (e.g., already edited)
+  }
+  
+  // Execute the command using the same router
+  await runCommand(ctx, key);
+});
+
+// Setup file upload handlers
 setupBatchConvertFlow(bot);
 setupSingleConvertFlow(bot);
 setupAIFlows(bot);
@@ -135,7 +165,7 @@ bot.on('text', async (ctx) => {
   // AI pack title handling
   if (session.mode === 'pack' && session.uploadedFiles.length > 0 && !session.packTitle) {
     setSession(ctx.from!.id, { packTitle: text });
-    await ctx.reply('Choose one emoji to apply to all stickers:', { reply_markup: { remove_keyboard: true } });
+    await ctx.reply('Choose one emoji to apply to all stickers:', REPLY_OPTIONS);
     return;
   }
 
@@ -146,12 +176,16 @@ bot.on('text', async (ctx) => {
   }
 });
 
-// Error handling
+// Error handling with detailed logging
 bot.catch((err, ctx) => {
   const timestamp = new Date().toISOString();
-  console.error(`[${timestamp}] Error for ${ctx.updateType}:`, err);
-  if (err instanceof Error && err.message && err.message.includes('timeout')) {
-    console.error(`[${timestamp}] Timeout error - operation took too long. Consider making operations non-blocking.`);
+  console.error(`[${timestamp}] [Bot Error] Error for ${ctx.updateType}:`, err);
+  if (err instanceof Error) {
+    console.error(`[${timestamp}] [Bot Error] Error message:`, err.message);
+    console.error(`[${timestamp}] [Bot Error] Error stack:`, err.stack);
+    if (err.message && err.message.includes('timeout')) {
+      console.error(`[${timestamp}] [Bot Error] Timeout error - operation took too long.`);
+    }
   }
 });
 
@@ -167,31 +201,40 @@ async function registerCommands() {
       { command: 'done', description: 'Finish batch and create pack' },
       { command: 'help', description: 'Show help information' },
     ]);
-    console.log('Bot commands registered successfully');
+    console.log('[Bot] Commands registered successfully with Telegram');
   } catch (error) {
-    console.error('Failed to register commands:', error);
+    console.error('[Bot] Failed to register commands:', error);
   }
 }
 
 // Start bot
 bot.launch().then(async () => {
-  console.log('PackPuter bot is running!');
+  console.log('[Bot] ========================================');
+  console.log('[Bot] PackPuter bot is running!');
+  console.log('[Bot] ========================================');
+  
   // Register commands
   await registerCommands();
+  
   // Start job processor for async operations
   startJobProcessor(bot);
-  console.log('Job processor started');
+  console.log('[Bot] Job processor started');
+  
+  console.log('[Bot] Bot is ready to receive messages');
 }).catch((error) => {
-  console.error('Failed to start bot:', error);
+  console.error('[Bot] FATAL: Failed to start bot:', error);
   process.exit(1);
 });
 
 // Graceful shutdown
 process.once('SIGINT', () => {
+  console.log('[Bot] Received SIGINT, shutting down gracefully...');
   stopJobProcessor();
   bot.stop('SIGINT');
 });
+
 process.once('SIGTERM', () => {
+  console.log('[Bot] Received SIGTERM, shutting down gracefully...');
   stopJobProcessor();
   bot.stop('SIGTERM');
 });

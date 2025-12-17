@@ -9,5 +9,6 @@ COPY . .
 
 RUN npm run build
 
-CMD ["npm", "start"]
+# Run node directly in foreground (not daemonized)
+CMD ["node", "dist/index.js"]
 

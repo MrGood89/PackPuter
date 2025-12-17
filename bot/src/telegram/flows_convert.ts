@@ -10,19 +10,8 @@ import { createJob } from '../services/supabaseClient';
 import { REPLY_OPTIONS } from './menus';
 
 export function setupSingleConvertFlow(bot: any) {
-  // Command: /convert
-  bot.command('convert', async (ctx: Context) => {
-    const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] [Convert] /convert command received from user ${ctx.from!.id}`);
-    
-    resetSession(ctx.from!.id);
-    setSession(ctx.from!.id, { mode: 'convert' });
-
-    await ctx.reply(
-      'Send a GIF or video file to convert to a Telegram sticker.',
-      REPLY_OPTIONS
-    );
-  });
+  // Commands are now handled by router.ts
+  // This function only sets up file upload handlers
 
   bot.on('video', async (ctx: Context) => {
     await handleSingleFile(ctx);

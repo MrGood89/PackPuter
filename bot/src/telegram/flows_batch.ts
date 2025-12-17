@@ -17,47 +17,9 @@ import { generateShortName } from '../util/slug';
 const MAX_BATCH_SIZE = 10;
 
 export function setupBatchConvertFlow(bot: Telegraf) {
-  // Command: /batch
-  bot.command('batch', async (ctx) => {
-    const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] [Batch] /batch command received from user ${ctx.from!.id}`);
-    
-    const session = getSession(ctx.from!.id);
-    resetSession(ctx.from!.id);
-    setSession(ctx.from!.id, { mode: 'batch' });
-
-    await ctx.reply(
-      `Send up to 10 GIFs/videos. I'll convert each into Telegram-ready stickers.\nWhen finished, use /done command.`,
-      REPLY_OPTIONS
-    );
-  });
-
-  // Command: /done
-  bot.command('done', async (ctx) => {
-    const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] [Batch] /done command received from user ${ctx.from!.id}`);
-    const session = getSession(ctx.from!.id);
-    if (session.mode !== 'batch' || session.uploadedFiles.length === 0) {
-      await ctx.reply('No files to process. Use /batch to start.', REPLY_OPTIONS);
-      return;
-    }
-
-    // Verify all files still exist
-    const missingFiles = session.uploadedFiles.filter(f => !f.filePath || !fs.existsSync(f.filePath));
-    if (missingFiles.length > 0) {
-      console.error('Files missing when Done pressed:', missingFiles);
-      await ctx.reply(`❌ ${missingFiles.length} file(s) are missing. Please convert them again.`, REPLY_OPTIONS);
-      return;
-    }
-
-    await ctx.reply(
-      '✅ All files ready! Reply with:\n' +
-      '• "new" to create a new pack\n' +
-      '• "existing <pack_name>" to add to existing pack',
-      REPLY_OPTIONS
-    );
-  });
-
+  // Commands are now handled by router.ts
+  // This function only sets up file upload handlers
+  
   // Handle file uploads
   bot.on('video', async (ctx) => {
     await handleFileUpload(ctx);

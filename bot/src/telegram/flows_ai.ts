@@ -16,32 +16,8 @@ import {
 import { generateShortName } from '../util/slug';
 
 export function setupAIFlows(bot: any) {
-  // Command: /ai
-  bot.command('ai', async (ctx: Context) => {
-    const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] [AI] /ai command received from user ${ctx.from!.id}`);
-    
-    resetSession(ctx.from!.id);
-    setSession(ctx.from!.id, { mode: 'ai' });
-
-    await ctx.reply(
-      'Send a base image (PNG preferred, JPG also accepted).',
-      REPLY_OPTIONS
-    );
-  });
-
-  // Command: /pack
-  bot.command('pack', async (ctx: Context) => {
-    const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] [AI Pack] /pack command received from user ${ctx.from!.id}`);
-    
-    resetSession(ctx.from!.id);
-    setSession(ctx.from!.id, { mode: 'pack' });
-
-    await ctx.reply('How many stickers? Reply with "6" or "12"', REPLY_OPTIONS);
-  });
-
-  // These will be handled by text handler for pack size and theme
+  // Commands are now handled by router.ts
+  // This function only sets up file upload handlers
 
   // Handle image uploads for AI flows
   bot.on('photo', async (ctx: Context) => {

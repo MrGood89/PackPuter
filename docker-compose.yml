@@ -10,12 +10,18 @@ services:
       - ./bot/.env
     environment:
       - NODE_ENV=production
+      - DEBUG=telegraf:*
     volumes:
       - ./bot/src:/app/src
       - packputer_temp:/tmp/packputer
     depends_on:
       - worker
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   worker:
     build:
@@ -29,6 +35,11 @@ services:
     ports:
       - "8000:8000"
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   packputer_temp:

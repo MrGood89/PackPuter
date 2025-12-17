@@ -19,9 +19,21 @@ A Telegram bot for batch converting GIFs/videos to Telegram-compliant stickers a
 
 2. Fill in `bot/.env` with your Telegram bot token and bot username.
 
-3. Build and run:
+3. **Important:** Configure BotFather to disable Web App:
+   - Go to [@BotFather](https://t.me/BotFather)
+   - Send `/setmenubutton`
+   - Select your bot
+   - Choose **"Default"** (not a Web App)
+   - This ensures the bot uses inline buttons, not web views
+
+4. Build and run:
    ```bash
    docker-compose up --build
+   ```
+
+5. View logs:
+   ```bash
+   docker-compose logs -f bot
    ```
 
 ## Architecture
