@@ -34,11 +34,14 @@ bot.start(async (ctx) => {
   console.log(`[${timestamp}] [Start] /start command received from user ${ctx.from!.id}`);
   
   // CRITICAL: Remove any existing ReplyKeyboard (must use non-empty text!)
-  await ctx.reply(' ', REMOVE_KEYBOARD);
+  // Send welcome message with keyboard removal, then show inline menu
+  await ctx.reply(
+    'Welcome to PackPuter! 🧠📦',
+    REMOVE_KEYBOARD
+  );
   
   // Now show inline menu
   await ctx.reply(
-    'Welcome to PackPuter! 🧠📦\n\n' +
     'I can help you:\n' +
     '• Convert GIFs/videos to Telegram stickers\n' +
     '• Generate AI-powered animated stickers\n' +

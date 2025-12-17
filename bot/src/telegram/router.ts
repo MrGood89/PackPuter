@@ -20,7 +20,11 @@ export async function runCommand(ctx: Context, key: CommandKey): Promise<void> {
         
         // CRITICAL: First remove any existing ReplyKeyboard
         // Send a message with remove_keyboard to clear any cached keyboards
-        await ctx.reply(' ', REMOVE_KEYBOARD);
+        // Remove keyboard with welcome message, then show inline menu
+        await ctx.reply(
+          'Welcome to PackPuter! 🧠📦',
+          REMOVE_KEYBOARD
+        );
         
         // Now send the menu with inline keyboard (separate message)
         await ctx.reply(
@@ -28,7 +32,7 @@ export async function runCommand(ctx: Context, key: CommandKey): Promise<void> {
           '• Convert GIFs/videos to Telegram stickers\n' +
           '• Generate AI-powered animated stickers\n' +
           '• Create sticker packs automatically\n\n' +
-          'Choose an option:',
+          'Choose an option from the menu:',
           mainMenuKeyboard()
         );
         break;
