@@ -3,7 +3,7 @@ import fs from 'fs';
 import axios from 'axios';
 import { getSession, setSession, resetSession } from './sessions';
 import { env } from '../env';
-import { getAddStickerLink, FORCE_REPLY } from './menus';
+import { FORCE_REPLY } from './menus';
 import { isValidVideoFile } from '../util/validate';
 import { getTempFilePath, cleanupFile } from '../util/file';
 import { workerClient } from '../services/workerClient';
@@ -11,8 +11,9 @@ import {
   createStickerSet,
   addStickerToSet,
   getMyStickerSets,
+  buildPackShortName,
+  getAddStickerLink,
 } from './packs';
-import { generateShortName } from '../util/slug';
 
 const MAX_BATCH_SIZE = 10;
 
@@ -311,10 +312,7 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
       // Create new pack
       await ctx.reply('📦 Creating sticker pack...');
 
-      const shortName = generateShortName(
-        session.packTitle || 'MyPack',
-        env.BOT_USERNAME
-      );
+      const shortName = buildPackShortName(session.packTitle || 'MyPack');
 
       // Create pack with first sticker
       const firstFile = session.uploadedFiles[0];

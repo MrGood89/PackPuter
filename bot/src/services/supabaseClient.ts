@@ -1,6 +1,11 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { env } from '../env';
 
+// Declare global for error throttling
+declare global {
+  var lastSupabaseError: number | undefined;
+}
+
 let client: SupabaseClient | null = null;
 
 export function getSupabaseClient(): SupabaseClient | null {
@@ -107,7 +112,12 @@ export async function getPendingJobs(limit: number = 10): Promise<ConversionJob[
     .limit(limit);
 
   if (error) {
-    console.error('Failed to get pending jobs:', error);
+    // Only log Supabase errors once per minute to avoid spam
+    const now = Date.now();
+    if (!global.lastSupabaseError || now - global.lastSupabaseError > 60000) {
+      console.error('Failed to get pending jobs:', error.message || error);
+      global.lastSupabaseError = now;
+    }
     return [];
   }
 

@@ -7,13 +7,14 @@ import { isValidImageFile } from '../util/validate';
 import { getTempFilePath, cleanupFile } from '../util/file';
 import { workerClient } from '../services/workerClient';
 import { memeputerClient } from '../services/memeputerClient';
-import { getAddStickerLink, FORCE_REPLY } from './menus';
+import { FORCE_REPLY } from './menus';
 import {
   createStickerSet,
   addStickerToSet,
   getMyStickerSets,
+  buildPackShortName,
+  getAddStickerLink,
 } from './packs';
-import { generateShortName } from '../util/slug';
 
 export function setupAIFlows(bot: any) {
   // Commands are now handled by router.ts

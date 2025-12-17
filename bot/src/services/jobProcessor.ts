@@ -5,7 +5,7 @@ import { memeputerClient } from './memeputerClient';
 import { getTempFilePath, cleanupFile } from '../util/file';
 import { getSession, setSession } from '../telegram/sessions';
 import { createStickerSet, addStickerToSet } from '../telegram/packs';
-import { getAddStickerLink } from '../telegram/menus';
+import { getAddStickerLink } from '../telegram/packs';
 import { generateShortName } from '../util/slug';
 import { env } from '../env';
 import fs from 'fs';
@@ -19,11 +19,18 @@ export function startJobProcessor(bot: Telegraf) {
     return; // Already running
   }
 
-  // Process jobs every 2 seconds
+  // Only start if Supabase is configured
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    console.log('Job processor not started: Supabase not configured');
+    return;
+  }
+
+  // Process jobs every 5 seconds (reduced from 2 to reduce load)
   processorInterval = setInterval(async () => {
     if (processing) return;
     await processNextJob(bot);
-  }, 2000);
+  }, 5000);
 
   // Cleanup expired jobs every hour
   setInterval(async () => {
@@ -50,8 +57,14 @@ export function stopJobProcessor() {
 }
 
 async function processNextJob(bot: Telegraf) {
-  const jobs = await getPendingJobs(1);
-  if (jobs.length === 0) return;
+  let jobs: ConversionJob[];
+  try {
+    jobs = await getPendingJobs(1);
+    if (jobs.length === 0) return;
+  } catch (error: any) {
+    // Silently ignore Supabase errors - jobs will be processed in-memory if Supabase is not available
+    return;
+  }
 
   const job = jobs[0];
   processing = true;

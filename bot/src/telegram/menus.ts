@@ -12,7 +12,3 @@ export const FORCE_REPLY = Markup.forceReply();
 export const DEFAULT_REPLY_OPTS = {
   disable_web_page_preview: true
 };
-
-export function getAddStickerLink(shortName: string): string {
-  return `https://t.me/addstickers/${shortName}`;
-}

@@ -1,8 +1,31 @@
-import { Context } from 'telegraf';
-import { env } from '../env';
-import fs from 'fs';
-import FormData from 'form-data';
-import axios from 'axios';
+import fs from "fs";
+import type { Context } from "telegraf";
+import { env } from "../env";
+
+function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_]/g, "")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 40);
+}
+
+export function buildPackShortName(title: string): string {
+  const base = slugify(title) || "pack";
+  const bot = env.BOT_USERNAME.toLowerCase(); // MUST be lowercase
+  return `${base}_by_${bot}`;
+}
+
+export function getAddStickerLink(shortName: string): string {
+  return `https://t.me/addstickers/${shortName}`;
+}
+
+function inputFileFromPath(filePath: string) {
+  return { source: fs.createReadStream(filePath) };
+}
 
 export async function createStickerSet(
   ctx: Context,
@@ -12,49 +35,42 @@ export async function createStickerSet(
   emoji: string
 ): Promise<boolean> {
   try {
-    // Verify file exists and get size
+    // Debug guard: verify file exists
     if (!fs.existsSync(firstStickerPath)) {
       console.error('createStickerSet: File does not exist:', firstStickerPath);
       return false;
     }
-    
+
     const fileSize = fs.statSync(firstStickerPath).size;
     console.log('createStickerSet: Creating sticker set with:', {
       title,
       shortName,
       emoji,
       filePath: firstStickerPath,
+      fileExists: true,
       fileSize,
       fileSizeKB: Math.round(fileSize / 1024),
-      userId: ctx.from!.id
     });
 
-    // Use raw Telegram Bot API with form-data for video stickers
-    // Telegraf's createNewStickerSet doesn't handle video stickers properly
-    const form = new FormData();
-    form.append('user_id', ctx.from!.id.toString());
-    form.append('name', shortName);
-    form.append('title', title);
-    form.append('sticker', fs.createReadStream(firstStickerPath), {
-      filename: 'sticker.webm',
-      contentType: 'video/webm'
-    });
-    form.append('emoji', emoji);
-    form.append('sticker_type', 'video');
-
-    const response = await axios.post(
-      `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/createNewStickerSet`,
-      form,
-      {
-        headers: form.getHeaders(),
-        timeout: 30000
-      }
-    );
-
-    if (!response.data.ok) {
-      throw new Error(response.data.description || 'Failed to create sticker set');
+    const userId = (ctx as any).from?.id;
+    if (!userId) {
+      throw new Error("createStickerSet: ctx.from.id missing");
     }
 
+    const payload = {
+      user_id: userId,
+      name: shortName,
+      title,
+      sticker_format: "video",
+      stickers: [
+        {
+          sticker: inputFileFromPath(firstStickerPath),
+          emoji_list: [emoji],
+        },
+      ],
+    };
+
+    await (ctx as any).telegram.callApi("createNewStickerSet", payload);
     console.log('createStickerSet: Successfully created sticker set:', shortName);
     return true;
   } catch (error: any) {
@@ -70,7 +86,6 @@ export async function createStickerSet(
       filePath: firstStickerPath,
       fileExists: fs.existsSync(firstStickerPath),
       fileSize: fs.existsSync(firstStickerPath) ? fs.statSync(firstStickerPath).size : 0,
-      userId: ctx.from!.id,
     });
     
     if (error.response) {
@@ -89,41 +104,42 @@ export async function createStickerSet(
 
 export async function addStickerToSet(
   ctx: Context,
-  setName: string,
+  shortName: string,
   stickerPath: string,
   emoji: string
 ): Promise<boolean> {
   try {
-    // Verify file exists
+    // Debug guard: verify file exists
     if (!fs.existsSync(stickerPath)) {
       console.error('addStickerToSet: File does not exist:', stickerPath);
       return false;
     }
-    
-    // Use raw Telegram Bot API with form-data for video stickers
-    const form = new FormData();
-    form.append('user_id', ctx.from!.id.toString());
-    form.append('name', setName);
-    form.append('sticker', fs.createReadStream(stickerPath), {
-      filename: 'sticker.webm',
-      contentType: 'video/webm'
+
+    const fileSize = fs.statSync(stickerPath).size;
+    console.log('addStickerToSet: Adding sticker to set:', {
+      shortName,
+      emoji,
+      filePath: stickerPath,
+      fileExists: true,
+      fileSize,
+      fileSizeKB: Math.round(fileSize / 1024),
     });
-    form.append('emoji', emoji);
-    form.append('sticker_type', 'video');
 
-    const response = await axios.post(
-      `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/addStickerToSet`,
-      form,
-      {
-        headers: form.getHeaders(),
-        timeout: 30000
-      }
-    );
-
-    if (!response.data.ok) {
-      throw new Error(response.data.description || 'Failed to add sticker to set');
+    const userId = (ctx as any).from?.id;
+    if (!userId) {
+      throw new Error("addStickerToSet: ctx.from.id missing");
     }
 
+    const payload = {
+      user_id: userId,
+      name: shortName,
+      sticker: {
+        sticker: inputFileFromPath(stickerPath),
+        emoji_list: [emoji],
+      },
+    };
+
+    await (ctx as any).telegram.callApi("addStickerToSet", payload);
     return true;
   } catch (error: any) {
     const errorTimestamp = new Date().toISOString();
@@ -131,12 +147,11 @@ export async function addStickerToSet(
     console.error(`[${errorTimestamp}] Error type:`, error.constructor.name);
     console.error(`[${errorTimestamp}] Error message:`, error.message);
     console.error(`[${errorTimestamp}] Error details:`, {
-      setName,
+      shortName,
       emoji,
       filePath: stickerPath,
       fileExists: fs.existsSync(stickerPath),
       fileSize: fs.existsSync(stickerPath) ? fs.statSync(stickerPath).size : 0,
-      userId: ctx.from!.id,
     });
     if (error.response) {
       console.error(`[${errorTimestamp}] Telegram API error response:`, JSON.stringify(error.response, null, 2));
@@ -155,4 +170,3 @@ export async function getMyStickerSets(ctx: Context): Promise<string[]> {
   // Users must manually enter the pack name when adding to existing pack
   return [];
 }
-
