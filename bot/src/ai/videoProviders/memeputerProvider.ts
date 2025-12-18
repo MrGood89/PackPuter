@@ -2,12 +2,12 @@
  * Memeputer Video Provider
  * Uses Memeputer AI agent for i2v generation
  */
-import axios from 'axios';
+import axios, { AxiosInstance } from 'axios';
 import fs from 'fs';
 import { getTempFilePath } from '../../util/file';
 import { env } from '../../env';
 import { VideoProvider, VideoGenerationOptions, VideoGenerationResult } from './types';
-import { cache } from '../../services/cache';
+import { stickerCache } from '../../services/cache';
 
 export class MemeputerVideoProvider implements VideoProvider {
   private client: axios.AxiosInstance;
@@ -45,11 +45,25 @@ export class MemeputerVideoProvider implements VideoProvider {
       throw new Error('Memeputer Agent ID is not configured.');
     }
 
-    const cacheKey = `memeputer_video_${JSON.stringify(options)}`;
-    const cachedResult = cache.get<VideoGenerationResult>(cacheKey);
-    if (cachedResult) {
+    // Use stickerCache for caching (file-based cache)
+    const cacheKey = stickerCache.generateKey(baseImagePath, {
+      template: templateId,
+      context: prompt,
+    });
+    const cachedResult = stickerCache.get(cacheKey);
+    if (cachedResult && fs.existsSync(cachedResult)) {
       console.log(`[${timestamp}] [MemeputerVideoProvider] Cache hit for video generation.`);
-      return cachedResult;
+      return {
+        outputPath: cachedResult,
+        metadata: {
+          duration: durationSec,
+          fps: fps,
+          width: 512,
+          height: 512,
+          hasAlpha: false,
+          model: 'memeputer',
+        },
+      };
     }
 
     try {
@@ -121,7 +135,8 @@ export class MemeputerVideoProvider implements VideoProvider {
           },
         };
 
-        cache.set(cacheKey, result, 24 * 60 * 60 * 1000); // Cache for 24 hours
+        // Cache the result
+        stickerCache.set(cacheKey, outputPath);
         console.log(`[${timestamp}] [MemeputerVideoProvider] ✅ Generated video: ${outputPath}`);
         return result;
       } else {
