@@ -20,7 +20,7 @@ def fit_to_limits(
     Returns (output_path, metadata).
     """
     # Probe input
-    duration, width, height, fps = probe_media(input_path)
+    duration, width, height, fps, pix_fmt = probe_media(input_path)
     
     # Trim to max duration
     actual_duration = min(duration, MAX_SECONDS, prefer_seconds)
@@ -74,12 +74,15 @@ def fit_to_limits(
                         
                         best_path = output_path
                         best_size = size_kb
+                        # Probe output to get actual pixel format
+                        _, _, _, _, output_pix_fmt = probe_media(output_path)
                         best_metadata = {
                             'duration': actual_duration,
                             'kb': size_kb,
                             'width': side,
                             'height': side,
-                            'fps': fps_val
+                            'fps': fps_val,
+                            'pix_fmt': output_pix_fmt or 'yuva420p'  # Default to expected format
                         }
                         
                         # Found good result, break inner loops

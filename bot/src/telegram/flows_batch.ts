@@ -330,8 +330,10 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
     existingPackName: session.existingPackName
   });
   
-  if ((session.mode !== 'batch' && session.mode !== 'pack') || session.uploadedFiles.length === 0) {
-    console.log(`[${packTimestamp}] [Pack Creation] Invalid session state - EXITING`);
+  // Allow batch, pack, ai, and ai_image modes for pack creation
+  const validModes = ['batch', 'pack', 'ai', 'ai_image'];
+  if (!validModes.includes(session.mode) || session.uploadedFiles.length === 0) {
+    console.log(`[${packTimestamp}] [Pack Creation] Invalid session state - mode: ${session.mode}, files: ${session.uploadedFiles.length} - EXITING`);
     return;
   }
 

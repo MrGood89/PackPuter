@@ -209,11 +209,12 @@ class MemeputerClient {
       // Memeputer API endpoint - /v1/agents/{id}/chat
       const endpoint = `/v1/agents/${this.agentId}/chat`;
       
-      // Memeputer agent expects: base_image, sticker_type, and message
+      // Memeputer agent expects: base_image, sticker_type, asset_prepared, and message
       // Format request according to agent's expected format
       const chatRequest: any = {
-        message: `Generate a sticker blueprint JSON for template "${templateId}". ${projectContext ? `Context: ${projectContext}` : ''} Constraints: ${JSON.stringify(request.constraints)}. Return only valid JSON blueprint with duration_sec, fps, text, motion, and effects fields.`,
+        message: `Generate a sticker blueprint JSON for template "${templateId}". ${projectContext ? `Context: ${projectContext}` : ''} Constraints: ${JSON.stringify(request.constraints)}. IMPORTANT: The base image is already a prepared cutout asset (transparent background, white outline, centered). Do NOT design a background - use transparent canvas. Return only valid JSON blueprint with duration_sec, fps, text, motion, and effects fields.`,
         sticker_type: 'video', // Video stickers for animated blueprints
+        asset_prepared: true, // Signal that base image is already prepared
       };
       
       // Include base_image if provided (agent needs it)
@@ -224,8 +225,8 @@ class MemeputerClient {
         const filename = baseImagePath.split('/').pop() || baseImagePath;
         chatRequest.base_image = filename; // Try sending filename first
         // Also mention in message for context
-        chatRequest.message += ` Base image is available: ${filename}`;
-        console.log(`[${timestamp}] [Memeputer] Including base_image: ${filename}`);
+        chatRequest.message += ` Base image is available: ${filename} (prepared asset with transparent background)`;
+        console.log(`[${timestamp}] [Memeputer] Including base_image: ${filename} (prepared asset)`);
       } else {
         console.log(`[${timestamp}] [Memeputer] No base_image provided - agent may ask for it`);
       }

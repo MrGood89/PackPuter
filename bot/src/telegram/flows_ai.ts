@@ -229,15 +229,44 @@ export async function handleTemplate(ctx: Context, templateInput: string) {
           '• "existing <pack_name>" to add to existing pack');
       }
 
-      // Store all generated stickers and switch to batch mode for pack creation
+      // Store all generated stickers - KEEP mode as 'ai' until pack creation completes
+      // This ensures proper routing and state management
       const currentSession = getSession(ctx.from!.id);
       setSession(ctx.from!.id, {
         ...currentSession,
-        mode: 'batch', // Switch to batch mode for pack creation flow
+        mode: 'ai', // Keep AI mode (don't switch to batch)
         uploadedFiles: generatedStickers,
         chosenPackAction: undefined, // Will be set when user responds
         autoProceedSent: false,
       });
+      
+      // Send preview of generated stickers
+      for (let i = 0; i < generatedStickers.length; i++) {
+        const sticker = generatedStickers[i];
+        try {
+          await ctx.replyWithVideo(
+            { source: sticker.filePath },
+            {
+              caption: i === 0 
+                ? `✅ Sticker ${i + 1}/${generatedStickers.length} generated!\n\nReply with:\n• "new" to create a new pack\n• "existing <pack_name>" to add to existing pack`
+                : `✅ Sticker ${i + 1}/${generatedStickers.length}`
+            }
+          );
+        } catch (error: any) {
+          console.error(`Failed to send preview for sticker ${i + 1}:`, error);
+          // Fallback: just send text
+          if (i === 0) {
+            await ctx.reply(`✅ ${generatedStickers.length} sticker(s) generated! Reply with:\n• "new" to create a new pack\n• "existing <pack_name>" to add to existing pack`);
+          }
+        }
+      }
+      
+      // Only show pack options once (already shown in first preview)
+      if (generatedStickers.length === 0) {
+        await ctx.reply('✅ Sticker generated! Reply with:\n' +
+          '• "new" to create a new pack\n' +
+          '• "existing <pack_name>" to add to existing pack');
+      }
 
       // Cleanup asset (original base image was already cleaned up)
       if (fs.existsSync(baseImage.filePath)) {

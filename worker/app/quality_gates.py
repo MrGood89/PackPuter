@@ -103,7 +103,7 @@ def validate_video_sticker(video_path: str, metadata: Optional[Dict[str, Any]] =
     """
     violations: List[ValidationViolation] = []
     
-    # Use metadata if provided, otherwise would need to probe video
+    # Use metadata if provided, otherwise probe video
     if metadata:
         duration = metadata.get('duration', 0)
         fps = metadata.get('fps', 0)
@@ -111,11 +111,52 @@ def validate_video_sticker(video_path: str, metadata: Optional[Dict[str, Any]] =
         height = metadata.get('height', 0)
         kb = metadata.get('kb', 0)
         has_audio = metadata.get('has_audio', False)
+        pix_fmt = metadata.get('pix_fmt', None)
     else:
-        # Would need to probe video file here
-        # For now, assume metadata is provided
-        logger.warning("No metadata provided for video validation")
-        return True, []
+        # Probe video file
+        from .ffmpeg_utils import probe_media
+        try:
+            duration, width, height, fps, pix_fmt = probe_media(video_path)
+            kb = os.path.getsize(video_path) / 1024
+            has_audio = False  # Would need to check streams
+        except Exception as e:
+            logger.error(f"Error probing video: {e}")
+            violations.append(ValidationViolation(
+                'probe_error',
+                'valid video',
+                str(e)
+            ))
+            return False, violations
+    
+    # CRITICAL: Check pixel format for alpha channel
+    if pix_fmt:
+        if 'yuva' not in pix_fmt.lower():
+            violations.append(ValidationViolation(
+                'pixel_format',
+                'yuva420p (with alpha)',
+                pix_fmt,
+                severity='error'
+            ))
+            logger.error(f"Video missing alpha channel! pix_fmt={pix_fmt}, expected yuva420p")
+    else:
+        # Try to probe if not in metadata
+        from .ffmpeg_utils import probe_media
+        try:
+            _, _, _, _, pix_fmt = probe_media(video_path)
+            if pix_fmt and 'yuva' not in pix_fmt.lower():
+                violations.append(ValidationViolation(
+                    'pixel_format',
+                    'yuva420p (with alpha)',
+                    pix_fmt or 'unknown',
+                    severity='error'
+                ))
+        except Exception:
+            violations.append(ValidationViolation(
+                'pixel_format',
+                'yuva420p (with alpha)',
+                'unknown (probe failed)',
+                severity='error'
+            ))
     
     # Check duration
     if duration > MAX_DURATION_SEC:
@@ -157,7 +198,7 @@ def validate_video_sticker(video_path: str, metadata: Optional[Dict[str, Any]] =
             'present'
         ))
     
-    is_valid = len(violations) == 0
+    is_valid = len([v for v in violations if v.severity == 'error']) == 0
     return is_valid, violations
 
 

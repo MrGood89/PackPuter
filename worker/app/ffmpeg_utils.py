@@ -3,8 +3,8 @@ import json
 import os
 from typing import Tuple, Optional
 
-def probe_media(path: str) -> Tuple[float, int, int, float]:
-    """Probe media file and return (duration, width, height, fps)."""
+def probe_media(path: str) -> Tuple[float, int, int, float, Optional[str]]:
+    """Probe media file and return (duration, width, height, fps, pix_fmt)."""
     try:
         cmd = [
             'ffprobe',
@@ -29,6 +29,7 @@ def probe_media(path: str) -> Tuple[float, int, int, float]:
         duration = float(data.get('format', {}).get('duration', 0))
         width = int(video_stream.get('width', 512))
         height = int(video_stream.get('height', 512))
+        pix_fmt = video_stream.get('pix_fmt', None)
         
         # Get FPS
         fps_str = video_stream.get('r_frame_rate', '30/1')
@@ -38,10 +39,10 @@ def probe_media(path: str) -> Tuple[float, int, int, float]:
         else:
             fps = float(fps_str)
         
-        return duration, width, height, fps
+        return duration, width, height, fps, pix_fmt
     except Exception as e:
         print(f"Error probing media: {e}")
-        return 3.0, 512, 512, 30.0
+        return 3.0, 512, 512, 30.0, None
 
 def encode_webm(
     input_path: str,
@@ -61,6 +62,8 @@ def encode_webm(
             'ffmpeg',
             '-i', input_path,
             '-c:v', 'libvpx-vp9',
+            '-pix_fmt', 'yuva420p',  # VP9 with alpha channel (CRITICAL for transparency)
+            '-auto-alt-ref', '0',    # Important for alpha in VP9
             '-crf', str(crf),
             '-b:v', '0',
             '-an',  # No audio

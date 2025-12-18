@@ -311,16 +311,19 @@ def render_animation(
         timestamp = int(time.time() * 1000)
         temp_video = f'/tmp/packputer/temp_video_{timestamp}_{unique_id}.webm'
         
-        # Use ffmpeg to create video from frames
+        # Use ffmpeg to create video from frames with alpha channel
+        # CRITICAL: Must use yuva420p for transparency (not yuv420p)
         cmd = [
             'ffmpeg',
             '-y',
             '-framerate', str(fps),
             '-i', os.path.join(frames_dir, 'frame_%05d.png'),
             '-c:v', 'libvpx-vp9',
+            '-pix_fmt', 'yuva420p',  # VP9 with alpha channel (CRITICAL for transparency)
+            '-auto-alt-ref', '0',    # Important for alpha in VP9
             '-crf', '32',
             '-b:v', '0',
-            '-an',
+            '-an',                   # No audio
             temp_video
         ]
         subprocess.run(cmd, check=True, capture_output=True)
