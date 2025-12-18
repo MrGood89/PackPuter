@@ -4,7 +4,6 @@ import { REMOVE_KEYBOARD, FORCE_REPLY } from './telegram/menus';
 import { mainMenuKeyboard } from './telegram/menu';
 import { runCommand, CommandKey } from './telegram/router';
 import { setupBatchConvertFlow, handlePackTitle, handlePackEmoji, handleExistingPackName } from './telegram/flows_batch';
-import { setupSingleConvertFlow } from './telegram/flows_convert';
 import { setupAIFlows, handleProjectContext, handleTemplate } from './telegram/flows_ai';
 import { getSession, setSession } from './telegram/sessions';
 import { startJobProcessor, stopJobProcessor } from './services/jobProcessor';
@@ -54,10 +53,6 @@ bot.start(async (ctx) => {
 // Slash commands - all use the same router
 bot.command('batch', async (ctx) => {
   await runCommand(ctx, 'batch');
-});
-
-bot.command('convert', async (ctx) => {
-  await runCommand(ctx, 'convert');
 });
 
 bot.command('ai', async (ctx) => {
@@ -111,7 +106,6 @@ bot.action(/^cmd:(.+)$/, async (ctx) => {
 
 // Setup file upload handlers
 setupBatchConvertFlow(bot);
-setupSingleConvertFlow(bot);
 setupAIFlows(bot);
 
 // Handle text messages for various flows
@@ -128,16 +122,27 @@ bot.on('text', async (ctx) => {
   }
 
   // Handle "new" or "existing <pack_name>" for batch pack creation
-  if (session.mode === 'batch' && session.uploadedFiles.length > 0 && !session.chosenPackAction) {
+  // Also handle AI-generated stickers (they switch to batch mode after generation)
+  if ((session.mode === 'batch' || session.mode === 'ai') && session.uploadedFiles.length > 0 && !session.chosenPackAction) {
     if (textLower === 'new') {
       console.log(`[${timestamp}] [Text Handler] User chose to create new pack`);
-      setSession(ctx.from!.id, { chosenPackAction: 'new' });
+      // Ensure we're in batch mode for pack creation
+      if (session.mode === 'ai') {
+        setSession(ctx.from!.id, { mode: 'batch', chosenPackAction: 'new' });
+      } else {
+        setSession(ctx.from!.id, { chosenPackAction: 'new' });
+      }
       await ctx.reply('What should the pack title be?', FORCE_REPLY);
       return;
     } else if (textLower.startsWith('existing ')) {
       const packName = text.substring(9).trim();
       console.log(`[${timestamp}] [Text Handler] User chose to add to existing pack: ${packName}`);
-      setSession(ctx.from!.id, { chosenPackAction: 'existing' });
+      // Ensure we're in batch mode for pack creation
+      if (session.mode === 'ai') {
+        setSession(ctx.from!.id, { mode: 'batch', chosenPackAction: 'existing' });
+      } else {
+        setSession(ctx.from!.id, { chosenPackAction: 'existing' });
+      }
       // handleExistingPackName will fetch emoji from pack and proceed
       await handleExistingPackName(ctx, packName);
       return;
@@ -228,7 +233,6 @@ async function registerCommands() {
     await bot.telegram.setMyCommands([
       { command: 'start', description: 'Start the bot and see main menu' },
       { command: 'batch', description: 'Start batch conversion (up to 10 files)' },
-      { command: 'convert', description: 'Convert a single file to sticker' },
       { command: 'ai', description: 'AI Sticker Maker - create animated sticker' },
       { command: 'pack', description: 'AI Generate Pack - create pack with AI' },
       { command: 'done', description: 'Finish batch and create pack' },

@@ -109,14 +109,31 @@ export async function handleProjectContext(ctx: Context, text: string) {
   await ctx.reply('Choose a template. Reply with one of: GM, GN, LFG, HIGHER, HODL, WAGMI, NGMI, SER, REKT, ALPHA', FORCE_REPLY);
 }
 
-export async function handleTemplate(ctx: Context, template: string) {
+export async function handleTemplate(ctx: Context, templateInput: string) {
   const session = getSession(ctx.from!.id);
   if (session.mode !== 'ai' || session.uploadedFiles.length === 0) return;
 
-  setSession(ctx.from!.id, { chosenTemplate: template });
+  // Parse multiple templates (comma-separated or space-separated)
+  const templates = templateInput
+    .split(/[,\s]+/)
+    .map(t => t.trim().toUpperCase())
+    .filter(t => t.length > 0)
+    .filter(t => ['GM', 'GN', 'LFG', 'HIGHER', 'HODL', 'WAGMI', 'NGMI', 'SER', 'REKT', 'ALPHA'].includes(t));
+
+  if (templates.length === 0) {
+    await ctx.reply('❌ No valid templates found. Please choose from: GM, GN, LFG, HIGHER, HODL, WAGMI, NGMI, SER, REKT, ALPHA');
+    return;
+  }
+
+  // Store templates for processing
+  setSession(ctx.from!.id, { chosenTemplate: templates.join(',') });
 
   // Send immediate response
-  const processingMsg = await ctx.reply('🎨 Generating sticker with AI...');
+  if (templates.length === 1) {
+    await ctx.reply(`🎨 Generating sticker with AI (${templates[0]})...`);
+  } else {
+    await ctx.reply(`🎨 Generating ${templates.length} stickers with AI...`);
+  }
   
   // Process asynchronously to avoid blocking
   setImmediate(async () => {
@@ -127,23 +144,35 @@ export async function handleTemplate(ctx: Context, template: string) {
         return;
       }
 
-      const blueprint = await memeputerClient.getBlueprint(
-        template,
-        session.projectContext
-      );
+      const generatedStickers: Array<{
+        fileId: string;
+        filePath: string;
+        metadata: {
+          duration: number;
+          kb: number;
+          width: number;
+          height: number;
+          fps: number;
+        };
+      }> = [];
 
-      const blueprintJson = JSON.stringify(blueprint);
-      const result = await workerClient.aiRender(baseImage.filePath, blueprintJson);
+      // Generate sticker for each template
+      for (let i = 0; i < templates.length; i++) {
+        const template = templates[i];
+        
+        if (templates.length > 1) {
+          await ctx.reply(`Generating ${i + 1}/${templates.length} (${template})...`);
+        }
 
-      // Ask which pack to add to
-      await ctx.reply('✅ Sticker generated! Reply with:\n' +
-        '• "new" to create a new pack\n' +
-        '• "existing <pack_name>" to add to existing pack',
-);
+        const blueprint = await memeputerClient.getBlueprint(
+          template,
+          session.projectContext
+        );
 
-      // Store the result for pack creation
-      session.uploadedFiles = [
-        {
+        const blueprintJson = JSON.stringify(blueprint);
+        const result = await workerClient.aiRender(baseImage.filePath, blueprintJson);
+
+        generatedStickers.push({
           fileId: '',
           filePath: result.output_path,
           metadata: {
@@ -153,15 +182,35 @@ export async function handleTemplate(ctx: Context, template: string) {
             height: result.height,
             fps: result.fps,
           },
-        },
-      ];
-      setSession(ctx.from!.id, session);
+        });
+      }
+
+      // Ask which pack to add to
+      if (generatedStickers.length === 1) {
+        await ctx.reply('✅ Sticker generated! Reply with:\n' +
+          '• "new" to create a new pack\n' +
+          '• "existing <pack_name>" to add to existing pack');
+      } else {
+        await ctx.reply(`✅ ${generatedStickers.length} stickers generated! Reply with:\n` +
+          '• "new" to create a new pack\n' +
+          '• "existing <pack_name>" to add to existing pack');
+      }
+
+      // Store all generated stickers and switch to batch mode for pack creation
+      const currentSession = getSession(ctx.from!.id);
+      setSession(ctx.from!.id, {
+        ...currentSession,
+        mode: 'batch', // Switch to batch mode for pack creation flow
+        uploadedFiles: generatedStickers,
+        chosenPackAction: undefined, // Will be set when user responds
+        autoProceedSent: false,
+      });
 
       cleanupFile(baseImage.filePath);
     } catch (error: any) {
       console.error('AI render error:', error);
       try {
-        await ctx.reply('❌ Failed to generate sticker.');
+        await ctx.reply('❌ Failed to generate sticker(s).');
       } catch (replyError) {
         console.error('Failed to send error message:', replyError);
       }

@@ -2,7 +2,7 @@ import { Context } from 'telegraf';
 import { getSession, setSession, resetSession } from './sessions';
 import { REMOVE_KEYBOARD, FORCE_REPLY } from './menus';
 
-export type CommandKey = 'batch' | 'convert' | 'ai' | 'pack' | 'done' | 'help' | 'mypacks' | 'start';
+export type CommandKey = 'batch' | 'ai' | 'pack' | 'done' | 'help' | 'mypacks' | 'start';
 
 /**
  * Central command router - handles both slash commands and button callbacks
@@ -46,15 +46,6 @@ export async function runCommand(ctx: Context, key: CommandKey): Promise<void> {
         resetBatchState(ctx.from!.id);
         await ctx.reply(
           'Send up to 10 GIFs/videos. I\'ll convert each into Telegram-ready stickers.\nWhen finished, use /done command.'
-        );
-        break;
-      }
-
-      case 'convert': {
-        resetSession(ctx.from!.id);
-        setSession(ctx.from!.id, { mode: 'convert' });
-        await ctx.reply(
-          'Send a GIF or video file to convert to a Telegram sticker.'
         );
         break;
       }
@@ -104,7 +95,6 @@ export async function runCommand(ctx: Context, key: CommandKey): Promise<void> {
           'PackPuter Help 📖\n\n' +
           'Commands:\n' +
           '/batch - Upload up to 10 GIFs/videos, convert them all, and create a pack\n' +
-          '/convert - Convert one file to a sticker\n' +
           '/ai - AI Sticker Maker: Send a base image, choose a template\n' +
           '/pack - AI Generate Pack: Generate a full sticker pack (6 or 12 stickers)\n' +
           '/done - Finish batch and proceed to pack creation\n\n' +
