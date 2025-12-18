@@ -323,8 +323,9 @@ async function handleAIGeneratePack(ctx: Context) {
           await ctx.reply(`Generating sticker ${i + 1}/${blueprints.length}...`);
 
           // Ensure text is uppercase
-          if (blueprints[i].text && blueprints[i].text.value) {
-            blueprints[i].text.value = blueprints[i].text.value.toUpperCase();
+          const blueprint = blueprints[i];
+          if (blueprint.text && blueprint.text.value) {
+            blueprint.text.value = blueprint.text.value.toUpperCase();
           }
 
           const blueprintJson = JSON.stringify(blueprints[i]);
@@ -361,8 +362,9 @@ async function handleAIGeneratePack(ctx: Context) {
           await ctx.reply(`Generating sticker ${i + 1}/${blueprints.length}...`);
 
           // Ensure text is uppercase
-          if (blueprints[i].text && blueprints[i].text.value) {
-            blueprints[i].text.value = blueprints[i].text.value.toUpperCase();
+          const blueprint = blueprints[i];
+          if (blueprint.text && blueprint.text.value) {
+            blueprint.text.value = blueprint.text.value.toUpperCase();
           }
 
           const blueprintJson = JSON.stringify(blueprints[i]);
