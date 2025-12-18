@@ -197,8 +197,8 @@ export async function handleTemplate(ctx: Context, templateInput: string) {
         );
 
         // Ensure text is uppercase (template requirement)
-        if (blueprint.text && blueprint.text.value) {
-          blueprint.text.value = blueprint.text.value.toUpperCase();
+        if (blueprint.text?.value) {
+          blueprint.text!.value = blueprint.text.value.toUpperCase();
         }
 
         const blueprintJson = JSON.stringify(blueprint);
@@ -324,8 +324,8 @@ async function handleAIGeneratePack(ctx: Context) {
 
           // Ensure text is uppercase
           const blueprint = blueprints[i];
-          if (blueprint.text && blueprint.text.value) {
-            blueprint.text.value = blueprint.text.value.toUpperCase();
+          if (blueprint.text?.value) {
+            blueprint.text!.value = blueprint.text.value.toUpperCase();
           }
 
           const blueprintJson = JSON.stringify(blueprints[i]);
@@ -363,8 +363,8 @@ async function handleAIGeneratePack(ctx: Context) {
 
           // Ensure text is uppercase
           const blueprint = blueprints[i];
-          if (blueprint.text && blueprint.text.value) {
-            blueprint.text.value = blueprint.text.value.toUpperCase();
+          if (blueprint.text?.value) {
+            blueprint.text!.value = blueprint.text.value.toUpperCase();
           }
 
           const blueprintJson = JSON.stringify(blueprints[i]);
