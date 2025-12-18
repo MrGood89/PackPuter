@@ -70,7 +70,8 @@ export function extractStickerSetEmoji(stickerSet: any): string | null {
 async function uploadStickerAndGetFileId(
   ctx: Context,
   userId: number,
-  filePath: string
+  filePath: string,
+  stickerFormat: 'static' | 'video' = 'video'
 ): Promise<string> {
   if (!fs.existsSync(filePath)) {
     throw new Error(`uploadStickerAndGetFileId: file does not exist: ${filePath}`);
@@ -82,12 +83,13 @@ async function uploadStickerAndGetFileId(
     fileSize,
     fileSizeKB: Math.round(fileSize / 1024),
     userId,
+    stickerFormat,
   });
 
   const res = await (ctx as any).telegram.callApi("uploadStickerFile", {
     user_id: userId,
     sticker: { source: fs.createReadStream(filePath) }, // top-level -> multipart works
-    sticker_format: "video",
+    sticker_format: stickerFormat,
   });
 
   // Telegram returns { file_id, file_unique_id, file_size? }
@@ -105,7 +107,8 @@ export async function createStickerSet(
   title: string,
   shortName: string,
   firstStickerPath: string,
-  emoji: string
+  emoji: string,
+  stickerFormat: 'static' | 'video' = 'video'
 ): Promise<boolean> {
   try {
     // Debug guard: verify file exists
@@ -127,17 +130,18 @@ export async function createStickerSet(
       fileExists: true,
       fileSize: fs.statSync(firstStickerPath).size,
       userId,
+      stickerFormat,
     });
 
     // 1) Upload file to Telegram -> get file_id (string)
-    const firstStickerFileId = await uploadStickerAndGetFileId(ctx, userId, firstStickerPath);
+    const firstStickerFileId = await uploadStickerAndGetFileId(ctx, userId, firstStickerPath, stickerFormat);
 
     // 2) Create set using STRING file_id
     await (ctx as any).telegram.callApi("createNewStickerSet", {
       user_id: userId,
       name: shortName,
       title,
-      sticker_format: "video",
+      sticker_format: stickerFormat,
       stickers: [
         {
           sticker: firstStickerFileId, // MUST be string in JSON mode
@@ -181,7 +185,8 @@ export async function addStickerToSet(
   ctx: Context,
   shortName: string,
   stickerPath: string,
-  emoji: string
+  emoji: string,
+  stickerFormat: 'static' | 'video' = 'video'
 ): Promise<boolean> {
   try {
     // Debug guard: verify file exists
@@ -201,10 +206,11 @@ export async function addStickerToSet(
       filePath: stickerPath,
       fileExists: true,
       fileSize: fs.statSync(stickerPath).size,
+      stickerFormat,
     });
 
     // upload -> file_id
-    const stickerFileId = await uploadStickerAndGetFileId(ctx, userId, stickerPath);
+    const stickerFileId = await uploadStickerAndGetFileId(ctx, userId, stickerPath, stickerFormat);
 
     // add using file_id string
     await (ctx as any).telegram.callApi("addStickerToSet", {

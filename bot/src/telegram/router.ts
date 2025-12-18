@@ -2,7 +2,7 @@ import { Context } from 'telegraf';
 import { getSession, setSession, resetSession } from './sessions';
 import { REMOVE_KEYBOARD, FORCE_REPLY } from './menus';
 
-export type CommandKey = 'batch' | 'ai' | 'pack' | 'done' | 'help' | 'mypacks' | 'start';
+export type CommandKey = 'pack' | 'batch' | 'ai' | 'ai_image' | 'generate' | 'done' | 'help' | 'mypacks' | 'start';
 
 /**
  * Central command router - handles both slash commands and button callbacks
@@ -15,6 +15,12 @@ export async function runCommand(ctx: Context, key: CommandKey): Promise<void> {
   try {
     switch (key) {
       case 'start': {
+        // Legacy /start - redirect to /pack
+        await runCommand(ctx, 'pack');
+        break;
+      }
+
+      case 'pack': {
         // Import here to avoid circular dependencies
         const { mainMenuKeyboard } = await import('./menu');
         
@@ -52,14 +58,23 @@ export async function runCommand(ctx: Context, key: CommandKey): Promise<void> {
 
       case 'ai': {
         resetSession(ctx.from!.id);
-        setSession(ctx.from!.id, { mode: 'ai' });
+        setSession(ctx.from!.id, { mode: 'ai', stickerFormat: 'video' });
         await ctx.reply(
           'Send a base image (PNG preferred, JPG also accepted).'
         );
         break;
       }
 
-      case 'pack': {
+      case 'ai_image': {
+        resetSession(ctx.from!.id);
+        setSession(ctx.from!.id, { mode: 'ai_image', stickerFormat: 'static' });
+        await ctx.reply(
+          'Send a base image (PNG preferred, JPG also accepted).'
+        );
+        break;
+      }
+
+      case 'generate': {
         resetSession(ctx.from!.id);
         setSession(ctx.from!.id, { mode: 'pack' });
         await ctx.reply('How many stickers? Reply with "6" or "12"', FORCE_REPLY);
@@ -94,14 +109,16 @@ export async function runCommand(ctx: Context, key: CommandKey): Promise<void> {
         await ctx.reply(
           'PackPuter Help 📖\n\n' +
           'Commands:\n' +
+          '/pack - Start the bot and see main menu\n' +
           '/batch - Upload up to 10 GIFs/videos, convert them all, and create a pack\n' +
-          '/ai - AI Sticker Maker: Send a base image, choose a template\n' +
-          '/pack - AI Generate Pack: Generate a full sticker pack (6 or 12 stickers)\n' +
+          '/ai - AI Video Sticker Maker: Send a base image, choose a template\n' +
+          '/ai_image - AI Image Sticker Maker: Create static PNG stickers\n' +
+          '/generate - AI Generate Pack: Generate a full sticker pack (6 or 12 stickers)\n' +
           '/done - Finish batch and proceed to pack creation\n\n' +
           'All stickers meet Telegram requirements:\n' +
-          '• WEBM VP9 format\n' +
-          '• ≤ 3 seconds\n' +
-          '• ≤ 30 fps\n' +
+          '• WEBM VP9 format (video) or PNG (static)\n' +
+          '• ≤ 3 seconds (video)\n' +
+          '• ≤ 30 fps (video)\n' +
           '• 512px max dimension\n' +
           '• ≤ 256 KB'
         );

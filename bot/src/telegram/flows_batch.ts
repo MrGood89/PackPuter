@@ -351,10 +351,13 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
       
       let addedCount = 0;
       
+      // Determine sticker format from session (defaults to 'video' for batch mode)
+      const stickerFormat = session.stickerFormat || 'video';
+      
       for (const file of session.uploadedFiles) {
         if (file.filePath && fs.existsSync(file.filePath)) {
-          console.log(`[${packTimestamp}] [Pack Creation] Adding sticker to pack "${packName}"`);
-          const success = await addStickerToSet(ctx, packName, file.filePath, emoji);
+          console.log(`[${packTimestamp}] [Pack Creation] Adding sticker to pack "${packName}" (format: ${stickerFormat})`);
+          const success = await addStickerToSet(ctx, packName, file.filePath, emoji, stickerFormat);
           if (success) {
             addedCount++;
             console.log(`[${packTimestamp}] [Pack Creation] Successfully added sticker ${addedCount}`);
@@ -440,12 +443,16 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
         emoji,
       });
 
+      // Determine sticker format from session (defaults to 'video' for batch mode)
+      const stickerFormat = session.stickerFormat || 'video';
+      
       const created = await createStickerSet(
         ctx,
         session.packTitle || 'My Pack',
         shortName,
         firstFile.filePath,
-        emoji
+        emoji,
+        stickerFormat
       );
 
       if (!created) {
@@ -457,18 +464,18 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
       console.log('Sticker set created successfully:', shortName);
 
       // Add remaining stickers
-      for (let i = 1; i < session.uploadedFiles.length; i++) {
-        const file = session.uploadedFiles[i];
-        if (file.filePath && fs.existsSync(file.filePath)) {
-          console.log(`Adding sticker ${i + 1}/${session.uploadedFiles.length} to pack:`, file.filePath);
-          const added = await addStickerToSet(ctx, shortName, file.filePath, emoji);
-          if (!added) {
-            console.error(`Failed to add sticker ${i + 1} to pack`);
+          for (let i = 1; i < session.uploadedFiles.length; i++) {
+            const file = session.uploadedFiles[i];
+            if (file.filePath && fs.existsSync(file.filePath)) {
+              console.log(`Adding sticker ${i + 1}/${session.uploadedFiles.length} to pack:`, file.filePath);
+              const added = await addStickerToSet(ctx, shortName, file.filePath, emoji, stickerFormat);
+              if (!added) {
+                console.error(`Failed to add sticker ${i + 1} to pack`);
+              }
+            } else {
+              console.error(`Sticker ${i + 1} file not found:`, file.filePath);
+            }
           }
-        } else {
-          console.error(`Sticker ${i + 1} file not found:`, file.filePath);
-        }
-      }
 
       const link = getAddStickerLink(shortName);
       await ctx.reply(`✅ Pack created! Add it here: ${link}`);

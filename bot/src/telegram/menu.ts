@@ -10,8 +10,11 @@ export function mainMenuKeyboard() {
       Markup.button.callback('🧰 Batch Convert (≤10)', 'cmd:batch')
     ],
     [
-      Markup.button.callback('✨ AI Sticker Maker', 'cmd:ai'),
-      Markup.button.callback('🔥 AI Generate Pack', 'cmd:pack')
+      Markup.button.callback('✨ AI Video Sticker', 'cmd:ai'),
+      Markup.button.callback('🖼️ AI Image Sticker', 'cmd:ai_image')
+    ],
+    [
+      Markup.button.callback('🔥 AI Generate Pack', 'cmd:generate')
     ],
     [
       Markup.button.callback('📦 My Packs', 'cmd:mypacks'),
@@ -19,4 +22,7 @@ export function mainMenuKeyboard() {
     ],
   ]);
 }
+
+// Also export a callback handler for pack! button (same as start)
+export const PACK_START_CALLBACK = 'cmd:pack!';
 

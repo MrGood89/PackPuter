@@ -1,145 +1,147 @@
-# PackPuter - InlineKeyboard Implementation Summary
+# AI Sticker Implementation Summary
 
-## ✅ What Was Implemented
+## ✅ Completed Features
 
-### 1. Removed Web App Features
-- ✅ No `web_app` buttons found in codebase (verified)
-- ✅ Added BotFather instructions to README.md
-- ✅ All interactions use inline buttons or commands
+### 1. AI Image Sticker Maker Flow
+- **File**: `bot/src/telegram/flows_ai_image.ts`
+- **Flow**: User uploads base image → provides context → chooses template → generates 5-10 PNG stickers → creates pack
+- **Integration**: Fully wired into router, menu, and text handlers
 
-### 2. Replaced ReplyKeyboard with InlineKeyboard
+### 2. AI Image Generation Service
+- **File**: `bot/src/services/aiImageStickers.ts`
+- **Provider**: OpenAI Image Edit API (with fallback)
+- **Features**:
+  - Generates multiple sticker variations
+  - Enforces transparent background, sticker cutout look, big readable text
+  - Handles errors gracefully with fallback
 
-**Created:**
-- `bot/src/telegram/menu.ts` - Main menu with inline keyboard buttons
-- `bot/src/telegram/router.ts` - Central command router for unified command/button handling
+### 3. PNG Post-Processing
+- **File**: `bot/src/services/stickerPostprocess.ts`
+- **Features**:
+  - Resizes to 512×512 (maintains aspect ratio, adds padding)
+  - Ensures alpha channel
+  - Adds white outline (sticker cutout effect) - v1 simplified
+  - Optimizes PNG size
+  - Uses `sharp` library (with fallback)
 
-**Updated:**
-- `bot/src/index.ts` - Uses router for all commands, handles button callbacks
-- All flow files - Removed command handlers (now in router)
+### 4. Static Sticker Support in Pack Creation
+- **Updated**: `bot/src/telegram/packs.ts`
+- **Changes**:
+  - `createStickerSet()` and `addStickerToSet()` now accept `stickerFormat: 'static' | 'video'`
+  - `uploadStickerAndGetFileId()` supports both formats
+  - Pack creation flow automatically uses correct format based on session
 
-**Key Features:**
-- `/start` shows inline keyboard menu (no persistent ReplyKeyboard)
-- Buttons trigger same logic as slash commands
-- Buttons removed after click (optional, reduces clutter)
-- Old ReplyKeyboards removed once at `/start`
+### 5. Extended Blueprint Schema
+- **Updated**: `bot/src/services/memeputerClient.ts`
+- **New Fields**:
+  - `style`: fontSize, fontWeight, textColor, strokeColor, strokeWidth, outlineWidth
+  - `layout`: safeMargin, textAnchor, maxTextWidth
+  - `effects`: Added glow, shake, bounce
+  - `timing`: introMs, loopMs, outroMs
 
-### 3. Command Router System
+### 6. Improved Video Sticker Quality
+- **Updated**: `worker/app/render.py`
+- **Improvements**:
+  - Hard constraints: ≤3.0s duration, ≤30fps, 512×512
+  - "Sticker look" defaults: big readable text, thick stroke, subtle motion
+  - Extended style support from blueprint
+  - Better text positioning with safe margins
+  - Improved stroke rendering
 
-**Architecture:**
+### 7. Session Management
+- **Updated**: `bot/src/telegram/sessions.ts`
+- **New Fields**:
+  - `stickerFormat: 'static' | 'video'` - Tracks format for pack creation
+  - `aiStyle: AIStyle` - Pack style seed for consistency (structure added, usage pending)
+
+### 8. Menu & Router Integration
+- **Updated**: `bot/src/telegram/menu.ts` - Added "🖼️ AI Image Sticker" button
+- **Updated**: `bot/src/telegram/router.ts` - Added `ai_image` command handler
+- **Updated**: `bot/src/index.ts` - Wired all handlers and commands
+
+## 📦 Dependencies Added
+
+- `sharp`: ^0.33.0 - Image processing (resize, alpha, outline)
+- `openai`: ^4.20.0 - OpenAI SDK (optional, falls back to direct API)
+
+## 🔧 Configuration
+
+### Environment Variables
+Add to `bot/.env`:
+```bash
+OPENAI_API_KEY=sk-...  # Required for AI Image Sticker Maker
 ```
-User Action (Button or Command)
-    ↓
-router.ts (runCommand)
-    ↓
-Same handler logic
-```
 
-**Benefits:**
-- Buttons and commands behave identically
-- Single source of truth for command logic
-- Easy to add new commands
-- Ready for Memeputer integration (stable callback keys)
+## ⚠️ Known Limitations & Future Work
 
-### 4. Fixed Logging
+### 1. White Outline (v1 Simplified)
+- Current implementation adds a basic white border
+- **Future**: Full edge detection + dilation for proper sticker cutout outline
+- **Workaround**: AI-generated images should already have transparent backgrounds
 
-**Docker Compose:**
-- Added `logging` configuration for both services
-- Added `DEBUG=telegraf:*` environment variable
-- Logs rotate (max 10MB, 3 files)
+### 2. Pack Style Seed
+- Structure added to session (`aiStyle`)
+- **Pending**: Actual usage to enforce consistency across pack
+- **Future**: Generate style seed at pack start, apply to all stickers
 
-**Bot Code:**
-- Enhanced error logging with timestamps
-- Unhandled rejection/exception handlers
-- Telegraf debug logging enabled
-- All logs go to stdout (Docker captures)
+### 3. OpenAI Image Edit API
+- Currently uses `/v1/images/edits` endpoint
+- **Note**: This endpoint requires a base image + mask or prompt
+- **Alternative**: Could use `/v1/images/generations` for full AI generation
+- **Future**: Support multiple providers (DALL-E, Midjourney, Stable Diffusion)
 
-**Dockerfile:**
-- Changed from `npm start` to `node dist/index.js` (direct foreground execution)
+### 4. Worker Render Improvements
+- Extended blueprint schema is parsed but not all features fully utilized
+- **Future**: Implement glow effects, advanced timing, custom colors
 
-### 5. Keyboard Cleanup
+## 🧪 Testing Checklist
 
-**Rules Implemented:**
-- InlineKeyboard: Removed after click via `editMessageReplyMarkup(undefined)`
-- ReplyKeyboard: Removed once at `/start` with `REPLY_OPTIONS`
-- All replies use `REPLY_OPTIONS` (standardized)
+### AI Image Sticker Maker
+- [ ] Upload base PNG with transparency
+- [ ] Generate 5-10 stickers
+- [ ] Verify each is 512×512 PNG with alpha
+- [ ] Create new pack → should succeed
+- [ ] Add to existing pack → should succeed
 
-## 📁 Files Changed
+### AI Video Sticker Maker
+- [ ] Generate 5 WEBMs
+- [ ] Verify ≤3s, 512×512, plays in Telegram
+- [ ] Check consistency across pack
 
-### New Files
-- `bot/src/telegram/router.ts` - Command router
-- `bot/src/telegram/menu.ts` - Inline keyboard menu
-- `IMPLEMENTATION_SUMMARY.md` - This file
+### Pack Creation
+- [ ] Static stickers: verify `sticker_format: 'static'` in API calls
+- [ ] Video stickers: verify `sticker_format: 'video'` in API calls
+- [ ] Existing pack: verify emoji auto-fetch works
+- [ ] New pack: verify title and emoji prompts work
 
-### Modified Files
-- `bot/src/index.ts` - Router integration, button callbacks, enhanced logging
-- `bot/src/telegram/flows_batch.ts` - Removed command handlers
-- `bot/src/telegram/flows_convert.ts` - Removed command handlers
-- `bot/src/telegram/flows_ai.ts` - Removed command handlers
-- `docker-compose.yml` - Added logging config, DEBUG env
-- `bot/Dockerfile` - Direct node execution
-- `bot/tsconfig.json` - Added Node.js types
-- `README.md` - Added BotFather instructions
+## 🐛 Potential Issues
 
-## 🎯 User Experience
+1. **Sharp Installation**: May need native dependencies on some systems
+   - **Solution**: Docker container should handle this
 
-### Before
-- Persistent ReplyKeyboard (felt like an app)
-- Buttons stuck around
-- Commands and buttons had different behavior
-- Logs not visible
+2. **OpenAI API Rate Limits**: Generating 5-10 stickers sequentially may hit limits
+   - **Solution**: Add rate limiting or batch processing
 
-### After
-- Clean inline buttons under messages
-- Buttons removed after click
-- Commands and buttons work identically
-- Full logging visible in Docker logs
+3. **File Size**: AI-generated PNGs may be large
+   - **Solution**: Post-processing should optimize, but may need additional compression
 
-## 🚀 Deployment Steps
+4. **Memory Usage**: Processing multiple images in sequence
+   - **Solution**: Process one at a time, cleanup after each
 
-1. **Configure BotFather:**
-   ```
-   /setmenubutton → Select bot → Choose "Default"
-   ```
+## 📝 Next Steps
 
-2. **Deploy:**
-   ```bash
-   cd /srv/PackPuter
-   git pull
-   docker-compose build bot
-   docker-compose restart bot
-   ```
+1. **Test the implementation** with real images and templates
+2. **Add pack style seed generation** for consistency
+3. **Improve white outline** algorithm for better sticker cutout
+4. **Add error handling** for OpenAI API failures
+5. **Optimize PNG compression** for smaller file sizes
+6. **Add progress updates** during generation (e.g., "Generating 3/8...")
 
-3. **Monitor:**
-   ```bash
-   docker-compose logs -f bot
-   ```
+## 🔍 Code Locations
 
-4. **Test:**
-   - Send `/start` - Should see inline buttons
-   - Click buttons - Should trigger flows
-   - Check logs - Should see detailed output
-
-## 🔍 Verification Checklist
-
-- [x] No WebApp buttons in code
-- [x] InlineKeyboard used instead of ReplyKeyboard
-- [x] Buttons trigger same logic as commands
-- [x] Logging configured and working
-- [x] Keyboard cleanup implemented
-- [x] TypeScript compiles successfully
-- [x] Docker logs show output
-- [x] BotFather instructions in README
-
-## 📝 Notes
-
-- **Button Callback Format:** `cmd:batch`, `cmd:convert`, etc. (stable for future Memeputer integration)
-- **Router Pattern:** All commands go through `runCommand()` for consistency
-- **Logging:** All logs include ISO timestamps and context prefixes
-- **Error Handling:** Comprehensive error logging with stack traces
-
-## 🐛 Known Issues
-
-- TypeScript linter shows some type definition warnings (won't prevent compilation)
-- These are IDE-level issues, not runtime issues
-- Build should succeed despite warnings
-
+- **AI Image Flow**: `bot/src/telegram/flows_ai_image.ts`
+- **Image Generation**: `bot/src/services/aiImageStickers.ts`
+- **Post-Processing**: `bot/src/services/stickerPostprocess.ts`
+- **Pack Creation**: `bot/src/telegram/packs.ts` (updated)
+- **Video Render**: `worker/app/render.py` (updated)
+- **Blueprint Schema**: `bot/src/services/memeputerClient.ts` (extended)

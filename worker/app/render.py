@@ -36,22 +36,36 @@ def render_animation(
     x_offset = (target_size - new_width) // 2
     y_offset = (target_size - new_height) // 2
     
-    # Animation parameters
-    duration = blueprint.get('duration_sec', 2.6)
-    fps = min(blueprint.get('fps', 20), 30)
+    # Animation parameters - HARD CONSTRAINTS
+    duration = min(blueprint.get('duration_sec', 2.6), 3.0)  # Force ≤3.0s
+    fps = min(blueprint.get('fps', 20), 30)  # Force ≤30fps
     total_frames = int(duration * fps)
+    
+    # Extended style settings (with defaults for "sticker look")
+    style = blueprint.get('style', {})
+    font_size = style.get('fontSize', 60)  # Big readable text
+    text_color = style.get('textColor', '#FFFFFF')  # White text
+    stroke_color = style.get('strokeColor', '#000000')  # Black stroke
+    stroke_width = style.get('strokeWidth', 3)  # Thick stroke
+    outline_width = style.get('outlineWidth', 2)  # White outline
+    
+    # Layout settings
+    layout = blueprint.get('layout', {})
+    safe_margin = layout.get('safeMargin', 20)
+    text_anchor = layout.get('textAnchor', 'top')
+    max_text_width = layout.get('maxTextWidth', 400)
     
     # Text settings
     text_config = blueprint.get('text', {})
     text_value = text_config.get('value', '')
     text_subvalue = text_config.get('subvalue', '')
-    text_placement = text_config.get('placement', 'top')
-    text_stroke = text_config.get('stroke', True)
+    text_placement = text_config.get('placement', text_anchor)  # Use layout anchor if provided
+    text_stroke = text_config.get('stroke', True)  # Always stroke for readability
     
-    # Motion settings
+    # Motion settings - "sticker look" defaults
     motion = blueprint.get('motion', {})
-    motion_type = motion.get('type', 'bounce')
-    amplitude = motion.get('amplitude_px', 10)
+    motion_type = motion.get('type', 'bounce')  # Default subtle bounce
+    amplitude = motion.get('amplitude_px', 8)  # Subtle motion
     period = motion.get('period_sec', 1.3)
     
     # Face settings
@@ -59,10 +73,18 @@ def render_animation(
     blink_enabled = face.get('blink', False)
     blink_interval = face.get('blink_every_sec', 2.0)
     
-    # Effects
+    # Effects - minimal for sticker look
     effects = blueprint.get('effects', {})
     sparkles = effects.get('sparkles', False)
-    sparkle_count = effects.get('sparkle_count', 6)
+    sparkle_count = effects.get('sparkle_count', 4)  # Reduced for cleaner look
+    stars = effects.get('stars', False)
+    glow = effects.get('glow', False)
+    
+    # Timing (for future use)
+    timing = blueprint.get('timing', {})
+    intro_ms = timing.get('introMs', 0)
+    loop_ms = timing.get('loopMs', int(duration * 1000))
+    outro_ms = timing.get('outroMs', 0)
     
     # Create frames directory in shared volume with unique name
     unique_id = secrets.token_hex(8)  # 16 hex chars

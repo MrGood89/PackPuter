@@ -5,6 +5,7 @@ import { mainMenuKeyboard } from './telegram/menu';
 import { runCommand, CommandKey } from './telegram/router';
 import { setupBatchConvertFlow, handlePackTitle, handlePackEmoji, handleExistingPackName } from './telegram/flows_batch';
 import { setupAIFlows, handleProjectContext, handleTemplate } from './telegram/flows_ai';
+import { setupAIImageFlow, handleAIImageContext, handleAIImageTemplate } from './telegram/flows_ai_image';
 import { getSession, setSession } from './telegram/sessions';
 import { startJobProcessor, stopJobProcessor } from './services/jobProcessor';
 
@@ -27,27 +28,16 @@ process.on('uncaughtException', (error) => {
   process.exit(1);
 });
 
-// Start command - remove keyboard then show inline menu
+// Start command - redirect to pack (Memeputer uses /start by default)
 bot.start(async (ctx) => {
   const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] [Start] /start command received from user ${ctx.from!.id}`);
-  
-  // CRITICAL: Remove any existing ReplyKeyboard (must use non-empty text!)
-  // Send welcome message with keyboard removal, then show inline menu
-  await ctx.reply(
-    'Welcome to PackPuter! 🧠📦',
-    REMOVE_KEYBOARD
-  );
-  
-  // Now show inline menu
-  await ctx.reply(
-    'I can help you:\n' +
-    '• Convert GIFs/videos to Telegram stickers\n' +
-    '• Generate AI-powered animated stickers\n' +
-    '• Create sticker packs automatically\n\n' +
-    'Choose an option from the menu:',
-    mainMenuKeyboard()
-  );
+  console.log(`[${timestamp}] [Start] /start command received from user ${ctx.from!.id} - redirecting to /pack`);
+  await runCommand(ctx, 'pack');
+});
+
+// Pack command - our main start command
+bot.command('pack', async (ctx) => {
+  await runCommand(ctx, 'pack');
 });
 
 // Slash commands - all use the same router
@@ -57,6 +47,10 @@ bot.command('batch', async (ctx) => {
 
 bot.command('ai', async (ctx) => {
   await runCommand(ctx, 'ai');
+});
+
+bot.command('ai_image', async (ctx) => {
+  await runCommand(ctx, 'ai_image');
 });
 
 bot.command('pack', async (ctx) => {
@@ -77,9 +71,10 @@ bot.command('mypacks', async (ctx) => {
 
 // Inline keyboard button callbacks - trigger same commands
 bot.action(/^cmd:(.+)$/, async (ctx) => {
-  const key = ctx.match[1] as CommandKey;
+  let key = ctx.match[1] as CommandKey;
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] [Button] User ${ctx.from!.id} clicked button: cmd:${key}`);
+  
   
   // Acknowledge the callback to remove loading spinner
   await ctx.answerCbQuery();
@@ -107,6 +102,7 @@ bot.action(/^cmd:(.+)$/, async (ctx) => {
 // Setup file upload handlers
 setupBatchConvertFlow(bot);
 setupAIFlows(bot);
+setupAIImageFlow(bot);
 
 // Handle text messages for various flows
 bot.on('text', async (ctx) => {
@@ -123,7 +119,7 @@ bot.on('text', async (ctx) => {
 
   // Handle "new" or "existing <pack_name>" for batch pack creation
   // Also handle AI-generated stickers (they switch to batch mode after generation)
-  if ((session.mode === 'batch' || session.mode === 'ai') && session.uploadedFiles.length > 0 && !session.chosenPackAction) {
+  if ((session.mode === 'batch' || session.mode === 'ai' || session.mode === 'ai_image') && session.uploadedFiles.length > 0 && !session.chosenPackAction) {
     if (textLower === 'new') {
       console.log(`[${timestamp}] [Text Handler] User chose to create new pack`);
       // Ensure we're in batch mode for pack creation
@@ -194,9 +190,21 @@ bot.on('text', async (ctx) => {
     return;
   }
 
-  // Template handling (from text)
+  // Template handling (from text) - AI Video Sticker Maker
   if (session.mode === 'ai' && session.projectContext !== undefined && !session.chosenTemplate) {
     await handleTemplate(ctx, text);
+    return;
+  }
+
+  // AI Image Sticker Maker - project context handling
+  if (session.mode === 'ai_image' && session.uploadedFiles.length > 0 && !session.projectContext && !session.chosenTemplate) {
+    await handleAIImageContext(ctx, text);
+    return;
+  }
+
+  // AI Image Sticker Maker - template handling
+  if (session.mode === 'ai_image' && session.projectContext !== undefined && !session.chosenTemplate) {
+    await handleAIImageTemplate(ctx, text);
     return;
   }
 
@@ -231,10 +239,11 @@ bot.catch((err, ctx) => {
 async function registerCommands() {
   try {
     await bot.telegram.setMyCommands([
-      { command: 'start', description: 'Start the bot and see main menu' },
+      { command: 'pack', description: 'Start the bot and see main menu' },
       { command: 'batch', description: 'Start batch conversion (up to 10 files)' },
-      { command: 'ai', description: 'AI Sticker Maker - create animated sticker' },
-      { command: 'pack', description: 'AI Generate Pack - create pack with AI' },
+      { command: 'ai', description: 'AI Video Sticker Maker - create animated sticker' },
+      { command: 'ai_image', description: 'AI Image Sticker Maker - create static PNG stickers' },
+      { command: 'generate', description: 'AI Generate Pack - create pack with AI' },
       { command: 'done', description: 'Finish batch and create pack' },
       { command: 'help', description: 'Show help information' },
     ]);

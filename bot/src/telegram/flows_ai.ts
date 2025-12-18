@@ -164,9 +164,12 @@ export async function handleTemplate(ctx: Context, templateInput: string) {
           await ctx.reply(`Generating ${i + 1}/${templates.length} (${template})...`);
         }
 
+        // Get blueprint from Memeputer AI agent with enhanced context
+        // The AI agent should use the project context to create a more relevant blueprint
         const blueprint = await memeputerClient.getBlueprint(
           template,
-          session.projectContext
+          session.projectContext || undefined,
+          undefined // user_prompt - could be added later for custom instructions
         );
 
         const blueprintJson = JSON.stringify(blueprint);

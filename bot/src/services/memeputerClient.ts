@@ -24,6 +24,28 @@ export interface Blueprint {
     sparkles?: boolean;
     sparkle_count?: number;
     stars?: boolean;
+    glow?: boolean;
+    shake?: boolean;
+    bounce?: boolean;
+  };
+  // Extended schema for better quality
+  style?: {
+    fontSize?: number;
+    fontWeight?: string;
+    textColor?: string;
+    strokeColor?: string;
+    strokeWidth?: number;
+    outlineWidth?: number;
+  };
+  layout?: {
+    safeMargin?: number;
+    textAnchor?: 'top' | 'center' | 'bottom';
+    maxTextWidth?: number;
+  };
+  timing?: {
+    introMs?: number;
+    loopMs?: number;
+    outroMs?: number;
   };
 }
 
@@ -31,6 +53,8 @@ export interface MemeputerRequest {
   template_id: string;
   project_context?: string;
   user_prompt?: string;
+  base_image_description?: string; // Optional: description of the base image
+  style_preferences?: string; // Optional: style hints
   constraints: {
     duration_max_sec: number;
     fps_max: number;
@@ -148,15 +172,18 @@ class MemeputerClient {
     projectContext?: string,
     userPrompt?: string
   ): Promise<Blueprint> {
+    const timestamp = new Date().toISOString();
+    
     if (!this.client) {
-      // Fallback to default blueprint
+      console.warn(`[${timestamp}] [Memeputer] Client not configured, using fallback blueprint for ${templateId}`);
       return defaultBlueprints[templateId] || defaultBlueprints.GM;
     }
 
+    // Build enhanced request with more context for AI agent
     const request: MemeputerRequest = {
       template_id: templateId,
-      project_context: projectContext,
-      user_prompt: userPrompt,
+      project_context: projectContext || '',
+      user_prompt: userPrompt || '',
       constraints: {
         duration_max_sec: 3.0,
         fps_max: 30,
@@ -167,24 +194,65 @@ class MemeputerClient {
       },
     };
 
+    console.log(`[${timestamp}] [Memeputer] Requesting blueprint from AI agent:`, {
+      template_id: templateId,
+      has_context: !!projectContext,
+      context_length: projectContext?.length || 0,
+      endpoint: `${this.agentUrl}/generate`,
+    });
+
     try {
       const response = await this.client.post<MemeputerResponse>(
         '/generate',
-        request
+        request,
+        {
+          timeout: 60000, // 60 seconds for AI generation
+        }
       );
 
+      console.log(`[${timestamp}] [Memeputer] Response received:`, {
+        has_blueprint: !!response.data.blueprint,
+        has_error: !!response.data.error,
+        status: response.status,
+      });
+
       if (response.data.blueprint) {
+        console.log(`[${timestamp}] [Memeputer] ✅ Using AI-generated blueprint for ${templateId}`);
+        console.log(`[${timestamp}] [Memeputer] Blueprint details:`, {
+          duration: response.data.blueprint.duration_sec,
+          fps: response.data.blueprint.fps,
+          has_text: !!response.data.blueprint.text,
+          has_motion: !!response.data.blueprint.motion,
+          has_effects: !!response.data.blueprint.effects,
+        });
         return response.data.blueprint;
       }
 
       if (response.data.error) {
-        console.error('Memeputer error:', response.data.error);
+        console.error(`[${timestamp}] [Memeputer] ❌ AI agent returned error:`, response.data.error);
+      } else {
+        console.warn(`[${timestamp}] [Memeputer] ⚠️ No blueprint in response, using fallback`);
       }
-    } catch (error) {
-      console.error('Memeputer request failed:', error);
+    } catch (error: any) {
+      const errorTimestamp = new Date().toISOString();
+      console.error(`[${errorTimestamp}] [Memeputer] ❌ Request failed:`, {
+        message: error.message,
+        code: error.code,
+        response: error.response?.data,
+        status: error.response?.status,
+        url: error.config?.url,
+      });
+      
+      // Log if it's a network error vs API error
+      if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+        console.error(`[${errorTimestamp}] [Memeputer] Network error - agent may be down or unreachable`);
+      } else if (error.response) {
+        console.error(`[${errorTimestamp}] [Memeputer] API error - agent returned error status`);
+      }
     }
 
     // Fallback to default
+    console.warn(`[${timestamp}] [Memeputer] Using fallback blueprint for ${templateId}`);
     return defaultBlueprints[templateId] || defaultBlueprints.GM;
   }
 

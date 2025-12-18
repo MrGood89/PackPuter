@@ -1,4 +1,4 @@
-export type SessionMode = 'batch' | 'convert' | 'ai' | 'pack' | null;
+export type SessionMode = 'batch' | 'convert' | 'ai' | 'ai_image' | 'pack' | null;
 
 export interface UploadedFile {
   fileId: string;
@@ -10,6 +10,13 @@ export interface UploadedFile {
     height?: number;
     fps?: number;
   };
+}
+
+export interface AIStyle {
+  outlineWidth?: number;
+  fontFamily?: string;
+  strokeWidth?: number;
+  colorTheme?: string;
 }
 
 export interface Session {
@@ -24,6 +31,8 @@ export interface Session {
   packSize?: number; // for AI Generate Pack
   theme?: string; // for AI Generate Pack
   autoProceedSent?: boolean; // Track if auto-proceed message was sent
+  stickerFormat?: 'static' | 'video'; // Sticker format for pack creation
+  aiStyle?: AIStyle; // Pack style seed for consistency
 }
 
 const sessions = new Map<number, Session>();
