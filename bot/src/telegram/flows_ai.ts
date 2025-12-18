@@ -8,6 +8,8 @@ import { getTempFilePath, cleanupFile } from '../util/file';
 import { workerClient } from '../services/workerClient';
 import { memeputerClient } from '../services/memeputerClient';
 import { getTemplate } from '../ai/templates/stickers';
+import { generateVideo } from '../ai/videoProviders';
+import { buildPromptSpec } from '../services/promptBuilder';
 import { FORCE_REPLY } from './menus';
 import {
   createStickerSet,
@@ -183,27 +185,60 @@ export async function handleTemplate(ctx: Context, templateInput: string) {
           await ctx.reply(`Generating ${i + 1}/${templates.length} (${template})...`);
         }
 
-        // Get template definition for better prompts
-        const templateDef = getTemplate(template);
+        // Try i2v generation first (new pipeline)
+        let result;
+        let useI2V = true;
         
-        // Get blueprint from Memeputer AI agent with enhanced context
-        // The AI agent should use the project context to create a more relevant blueprint
-        // baseImage.filePath is now the prepared asset (with outline, shadow)
-        const blueprint = await memeputerClient.getBlueprint(
-          template,
-          session.projectContext || undefined,
-          undefined, // user_prompt - could be added later for custom instructions
-          baseImage.filePath // This is the prepared asset
-        );
+        try {
+          // Build prompt spec for i2v
+          const promptSpec = buildPromptSpec(
+            template,
+            session.projectContext || undefined
+          );
+          
+          // Generate video using i2v provider
+          const videoResult = await generateVideo({
+            baseImagePath: baseImage.filePath, // Prepared asset
+            prompt: promptSpec.prompt,
+            negativePrompt: promptSpec.negative_prompt,
+            templateId: template,
+            durationSec: promptSpec.duration_s,
+            fps: promptSpec.fps,
+            camera: promptSpec.camera,
+            motion: promptSpec.motion,
+          });
+          
+          // Send raw video to worker for matting and encoding
+          result = await workerClient.aiAnimate(
+            baseImage.filePath, // Prepared asset (for reference matting)
+            videoResult.outputPath, // Raw video from i2v
+            template,
+            promptSpec.duration_s,
+            promptSpec.fps
+          );
+          
+          console.log(`[${new Date().toISOString()}] [AI Video] ✅ i2v generation successful for ${template}`);
+        } catch (i2vError: any) {
+          console.error(`[${new Date().toISOString()}] [AI Video] i2v generation failed, falling back to procedural renderer:`, i2vError);
+          useI2V = false;
+          
+          // Fallback: Use procedural blueprint renderer
+          const templateDef = getTemplate(template);
+          
+          const blueprint = await memeputerClient.getBlueprint(
+            template,
+            session.projectContext || undefined,
+            undefined,
+            baseImage.filePath
+          );
 
-        // Ensure text is uppercase (template requirement)
-        if (blueprint.text?.value) {
-          blueprint.text!.value = blueprint.text.value.toUpperCase();
+          if (blueprint.text?.value) {
+            blueprint.text!.value = blueprint.text.value.toUpperCase();
+          }
+
+          const blueprintJson = JSON.stringify(blueprint);
+          result = await workerClient.aiRender(baseImage.filePath, blueprintJson);
         }
-
-        const blueprintJson = JSON.stringify(blueprint);
-        // Use prepared asset for rendering
-        const result = await workerClient.aiRender(baseImage.filePath, blueprintJson);
 
         generatedStickers.push({
           fileId: '',

@@ -10,6 +10,7 @@ from .batch import batch_convert_files
 from .render import render_animation
 from .sticker_asset import prepareStickerAsset, validate_sticker_asset
 from .quality_gates import validate_image_sticker, validate_video_sticker
+from .animate import animate_from_asset
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +155,61 @@ async def prepare_asset_endpoint(
         })
     except Exception as e:
         logger.error(f"Error preparing sticker asset: {e}")
+        return JSONResponse(
+            {"error": str(e)},
+            status_code=500
+        )
+
+@app.post("/ai/animate")
+async def ai_animate_endpoint(
+    prepared_asset: UploadFile = File(...),
+    raw_video: UploadFile = File(...),
+    template_id: str = Form(...),
+    duration_sec: float = Form(2.6),
+    fps: int = Form(24)
+):
+    """
+    Process raw i2v video into Telegram-compliant sticker.
+    Applies matting, encoding, and quality gates.
+    """
+    try:
+        temp_dir = '/tmp/packputer'
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        timestamp = int(time.time() * 1000)
+        unique_id = secrets.token_hex(8)
+        
+        # Save uploaded files
+        asset_path = os.path.join(temp_dir, f'asset_{timestamp}_{unique_id}.png')
+        video_path = os.path.join(temp_dir, f'raw_video_{timestamp}_{unique_id}.mp4')
+        output_path = os.path.join(temp_dir, f'animated_{timestamp}_{unique_id}.webm')
+        
+        with open(asset_path, 'wb') as f:
+            await prepared_asset.seek(0)
+            content = await prepared_asset.read()
+            f.write(content)
+        
+        with open(video_path, 'wb') as f:
+            await raw_video.seek(0)
+            content = await raw_video.read()
+            f.write(content)
+        
+        # Process animation
+        metadata = animate_from_asset(
+            asset_path,
+            video_path,
+            template_id,
+            output_path,
+            duration_sec,
+            fps
+        )
+        
+        return JSONResponse({
+            "output_path": output_path,
+            **metadata
+        })
+    except Exception as e:
+        logger.error(f"Error in ai_animate: {e}", exc_info=True)
         return JSONResponse(
             {"error": str(e)},
             status_code=500

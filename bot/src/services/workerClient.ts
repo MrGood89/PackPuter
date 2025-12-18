@@ -26,6 +26,18 @@ export interface AIRenderResponse {
   fps: number;
 }
 
+export interface AIAnimateResponse {
+  output_path: string;
+  duration: number;
+  kb: number;
+  width: number;
+  height: number;
+  fps: number;
+  pix_fmt?: string;
+  validated?: boolean;
+  violations?: string[];
+}
+
 class WorkerClient {
   private client: AxiosInstance;
 
@@ -118,6 +130,32 @@ class WorkerClient {
     if (response.data.output_path && fs.existsSync(response.data.output_path)) {
       stickerCache.set(cacheKey, response.data.output_path);
     }
+
+    return response.data;
+  }
+
+  async aiAnimate(
+    preparedAssetPath: string,
+    rawVideoPath: string,
+    templateId: string,
+    durationSec: number = 2.6,
+    fps: number = 24
+  ): Promise<AIAnimateResponse> {
+    const formData = new FormData();
+    formData.append('prepared_asset', fs.createReadStream(preparedAssetPath));
+    formData.append('raw_video', fs.createReadStream(rawVideoPath));
+    formData.append('template_id', templateId);
+    formData.append('duration_sec', durationSec.toString());
+    formData.append('fps', fps.toString());
+
+    const response = await this.client.post<AIAnimateResponse>(
+      '/ai/animate',
+      formData,
+      {
+        headers: formData.getHeaders(),
+        timeout: 300000, // 5 minutes for video processing
+      }
+    );
 
     return response.data;
   }
