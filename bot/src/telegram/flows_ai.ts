@@ -7,6 +7,7 @@ import { isValidImageFile } from '../util/validate';
 import { getTempFilePath, cleanupFile } from '../util/file';
 import { workerClient } from '../services/workerClient';
 import { memeputerClient } from '../services/memeputerClient';
+import { getTemplate } from '../ai/templates/stickers';
 import { FORCE_REPLY } from './menus';
 import {
   createStickerSet,
@@ -80,11 +81,29 @@ async function handleAIStickerMaker(ctx: Context) {
       });
       fs.writeFileSync(filePath, Buffer.from(response.data));
 
-      setSession(ctx.from!.id, { uploadedFiles: [{ fileId, filePath }] });
-
-      await ctx.reply(
-        'What is this project/coin/mascot about? (vibe, inside jokes, do\'s/don\'ts, colors, keywords)\n\nOr send /skip to skip.',
-      );
+      // Prepare asset using worker (asset-first pipeline)
+      await ctx.reply('🎨 Preparing sticker asset (removing background, adding outline)...');
+      try {
+        const assetResult = await workerClient.prepareAsset(filePath);
+        const assetPath = assetResult.output_path;
+        
+        // Update session with prepared asset
+        setSession(ctx.from!.id, { uploadedFiles: [{ fileId, filePath: assetPath }] });
+        
+        // Cleanup original file
+        cleanupFile(filePath);
+        
+        await ctx.reply(
+          'What is this project/coin/mascot about? (vibe, inside jokes, do\'s/don\'ts, colors, keywords)\n\nOr send /skip to skip.',
+        );
+      } catch (assetError: any) {
+        console.error('Asset preparation error:', assetError);
+        // Fallback: use original image
+        setSession(ctx.from!.id, { uploadedFiles: [{ fileId, filePath }] });
+        await ctx.reply(
+          '⚠️ Asset preparation failed, using original image.\n\nWhat is this project/coin/mascot about? (vibe, inside jokes, do\'s/don\'ts, colors, keywords)\n\nOr send /skip to skip.',
+        );
+      }
     } catch (error: any) {
       console.error('Image download error:', error);
       try {
@@ -164,16 +183,26 @@ export async function handleTemplate(ctx: Context, templateInput: string) {
           await ctx.reply(`Generating ${i + 1}/${templates.length} (${template})...`);
         }
 
+        // Get template definition for better prompts
+        const templateDef = getTemplate(template);
+        
         // Get blueprint from Memeputer AI agent with enhanced context
         // The AI agent should use the project context to create a more relevant blueprint
+        // baseImage.filePath is now the prepared asset (with outline, shadow)
         const blueprint = await memeputerClient.getBlueprint(
           template,
           session.projectContext || undefined,
           undefined, // user_prompt - could be added later for custom instructions
-          baseImage.filePath // baseImagePath for agent
+          baseImage.filePath // This is the prepared asset
         );
 
+        // Ensure text is uppercase (template requirement)
+        if (blueprint.text && blueprint.text.value) {
+          blueprint.text.value = blueprint.text.value.toUpperCase();
+        }
+
         const blueprintJson = JSON.stringify(blueprint);
+        // Use prepared asset for rendering
         const result = await workerClient.aiRender(baseImage.filePath, blueprintJson);
 
         generatedStickers.push({
@@ -210,7 +239,11 @@ export async function handleTemplate(ctx: Context, templateInput: string) {
         autoProceedSent: false,
       });
 
-      cleanupFile(baseImage.filePath);
+      // Cleanup asset (original base image was already cleaned up)
+      if (fs.existsSync(baseImage.filePath)) {
+        cleanupFile(baseImage.filePath);
+        console.log(`[${new Date().toISOString()}] [AI Video] Cleaned up asset: ${baseImage.filePath}`);
+      }
     } catch (error: any) {
       console.error('AI render error:', error);
       try {
@@ -268,33 +301,85 @@ async function handleAIGeneratePack(ctx: Context) {
       });
       fs.writeFileSync(baseImagePath, Buffer.from(response.data));
 
-      const blueprints = await memeputerClient.getBlueprints(
-        packSize,
-        'GM', // Default template
-        projectContext,
-        theme
-      );
+      // Prepare asset using worker (asset-first pipeline)
+      await ctx.reply('🎨 Preparing sticker asset (removing background, adding outline)...');
+      try {
+        const assetResult = await workerClient.prepareAsset(baseImagePath);
+        const preparedBaseImagePath = assetResult.output_path;
+        
+        // Cleanup original file
+        cleanupFile(baseImagePath);
+        
+        const blueprints = await memeputerClient.getBlueprints(
+          packSize,
+          'GM', // Default template
+          projectContext,
+          theme
+        );
 
-      const stickerPaths: string[] = [];
+        const stickerPaths: string[] = [];
 
-      for (let i = 0; i < blueprints.length; i++) {
-        await ctx.reply(`Generating sticker ${i + 1}/${blueprints.length}...`);
+        for (let i = 0; i < blueprints.length; i++) {
+          await ctx.reply(`Generating sticker ${i + 1}/${blueprints.length}...`);
 
-        const blueprintJson = JSON.stringify(blueprints[i]);
-        const result = await workerClient.aiRender(baseImagePath, blueprintJson);
-        stickerPaths.push(result.output_path);
+          // Ensure text is uppercase
+          if (blueprints[i].text && blueprints[i].text.value) {
+            blueprints[i].text.value = blueprints[i].text.value.toUpperCase();
+          }
+
+          const blueprintJson = JSON.stringify(blueprints[i]);
+          const result = await workerClient.aiRender(preparedBaseImagePath, blueprintJson);
+          stickerPaths.push(result.output_path);
+        }
+
+        // Ask for pack title
+        await ctx.reply('What should the pack title be?', FORCE_REPLY);
+        const currentSession = getSession(ctx.from!.id);
+        setSession(ctx.from!.id, {
+          ...currentSession,
+          uploadedFiles: stickerPaths.map((path) => ({ fileId: '', filePath: path })),
+          chosenPackAction: 'new', // Always create new for AI packs
+        });
+
+        // Cleanup prepared asset
+        if (fs.existsSync(preparedBaseImagePath)) {
+          cleanupFile(preparedBaseImagePath);
+        }
+      } catch (assetError: any) {
+        console.error('Asset preparation error:', assetError);
+        // Fallback: use original image
+        const blueprints = await memeputerClient.getBlueprints(
+          packSize,
+          'GM',
+          projectContext,
+          theme
+        );
+
+        const stickerPaths: string[] = [];
+
+        for (let i = 0; i < blueprints.length; i++) {
+          await ctx.reply(`Generating sticker ${i + 1}/${blueprints.length}...`);
+
+          // Ensure text is uppercase
+          if (blueprints[i].text && blueprints[i].text.value) {
+            blueprints[i].text.value = blueprints[i].text.value.toUpperCase();
+          }
+
+          const blueprintJson = JSON.stringify(blueprints[i]);
+          const result = await workerClient.aiRender(baseImagePath, blueprintJson);
+          stickerPaths.push(result.output_path);
+        }
+
+        await ctx.reply('What should the pack title be?', FORCE_REPLY);
+        const currentSession = getSession(ctx.from!.id);
+        setSession(ctx.from!.id, {
+          ...currentSession,
+          uploadedFiles: stickerPaths.map((path) => ({ fileId: '', filePath: path })),
+          chosenPackAction: 'new',
+        });
+
+        cleanupFile(baseImagePath);
       }
-
-      // Ask for pack title
-      await ctx.reply('What should the pack title be?', FORCE_REPLY);
-      const currentSession = getSession(ctx.from!.id);
-      setSession(ctx.from!.id, {
-        ...currentSession,
-        uploadedFiles: stickerPaths.map((path) => ({ fileId: '', filePath: path })),
-        chosenPackAction: 'new', // Always create new for AI packs
-      });
-
-      cleanupFile(baseImagePath);
     } catch (error: any) {
       console.error('AI pack generation error:', error);
       try {

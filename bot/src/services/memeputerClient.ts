@@ -444,8 +444,12 @@ class MemeputerClient {
     const textLayer = agentBlueprint.layers?.find((l: any) => l.kind === 'text' || l.id === 'text');
     if (textLayer) {
       const style = textLayer.style || {};
+      // Ensure text is uppercase (templates should be uppercase)
+      const textValue = textLayer.text || 'GM';
+      const uppercaseText = textValue.toUpperCase();
+      
       text = {
-        value: textLayer.text || 'GM',
+        value: uppercaseText, // Force uppercase
         placement: this.extractTextPlacement(textLayer.transform, agentBlueprint.canvas),
         stroke: style.stroke ? true : false,
       };

@@ -29,16 +29,25 @@ def render_animation(
     # Enhance blueprint with sticker-grade motion fields
     blueprint = enhance_blueprint_with_sticker_grade_motion(blueprint)
     
-    # Load base image
+    # Load base image (should already be prepared asset with outline/shadow)
     base_img = Image.open(base_image_path).convert('RGBA')
     base_width, base_height = base_img.size
     
-    # Scale to fit 512x512 (maintain aspect ratio)
+    # If image is already 512x512 (prepared asset), use it directly
+    # Otherwise, scale to fit 512x512 (maintain aspect ratio)
     target_size = 512
-    scale = min(target_size / base_width, target_size / base_height)
-    new_width = int(base_width * scale)
-    new_height = int(base_height * scale)
-    base_img = base_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+    
+    if base_width == target_size and base_height == target_size:
+        # Already prepared asset at correct size
+        new_width, new_height = target_size, target_size
+        # Don't resize, but we may need to extract subject bounds
+        logger.info("Using prepared asset (512x512)")
+    else:
+        # Scale to fit 512x512 (maintain aspect ratio)
+        scale = min(target_size / base_width, target_size / base_height)
+        new_width = int(base_width * scale)
+        new_height = int(base_height * scale)
+        base_img = base_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
     
     # Create canvas
     canvas = Image.new('RGBA', (target_size, target_size), (0, 0, 0, 0))
