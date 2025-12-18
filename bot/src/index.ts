@@ -99,6 +99,58 @@ bot.action(/^cmd:(.+)$/, async (ctx) => {
   await runCommand(ctx, key);
 });
 
+// Emoji picker pagination
+bot.action(/^emoji_page:(\d+)$/, async (ctx) => {
+  const page = Number(ctx.match[1] || 0);
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] [Emoji Picker] User ${ctx.from!.id} navigating to page ${page}`);
+  
+  const session = getSession(ctx.from!.id);
+  setSession(ctx.from!.id, { emojiPickPage: page });
+  
+  await ctx.answerCbQuery();
+  
+  const { emojiPickerKeyboard } = await import('./telegram/ui');
+  await ctx.editMessageText(
+    'Choose an emoji for this pack (tap one):',
+    emojiPickerKeyboard(page)
+  );
+});
+
+// Emoji selection
+bot.action(/^emoji_pick:(.+)$/, async (ctx) => {
+  const emoji = ctx.match[1]; // Don't decode - emoji should be passed as-is
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] [Emoji Picker] User ${ctx.from!.id} selected emoji: ${emoji}`);
+  
+  const session = getSession(ctx.from!.id);
+  
+  // Validate emoji (basic check - should be single emoji, allow up to 4 chars for complex emojis)
+  if (!emoji || emoji.length > 4) {
+    await ctx.answerCbQuery('Invalid emoji selected', true);
+    return;
+  }
+  
+  // Store emoji and continue pack creation
+  setSession(ctx.from!.id, { 
+    emoji, 
+    awaitingEmojiPick: false 
+  });
+  
+  await ctx.answerCbQuery(`Selected ${emoji}`);
+  
+  // Update message to show selection
+  try {
+    await ctx.editMessageText(`✅ Emoji set to ${emoji}. Creating pack...`);
+  } catch (error) {
+    // Message might already be edited, continue anyway
+    console.log(`[${timestamp}] [Emoji Picker] Could not edit message (non-critical):`, error);
+  }
+  
+  // Continue pack creation flow
+  await handlePackEmoji(ctx, emoji);
+});
+
 // Setup file upload handlers
 setupBatchConvertFlow(bot);
 setupAIFlows(bot);
@@ -151,8 +203,9 @@ bot.on('text', async (ctx) => {
     return;
   }
 
-  // Pack emoji handling (only for new packs)
-  if (session.mode === 'batch' && session.chosenPackAction === 'new' && session.packTitle && !session.emoji) {
+  // Pack emoji handling (only for new packs) - skip if using emoji picker
+  if (session.mode === 'batch' && session.chosenPackAction === 'new' && session.packTitle && !session.emoji && !session.awaitingEmojiPick) {
+    // Fallback: allow typed emoji if user types one anyway
     await handlePackEmoji(ctx, text);
     return;
   }
@@ -210,13 +263,15 @@ bot.on('text', async (ctx) => {
 
   // AI pack title handling
   if (session.mode === 'pack' && session.uploadedFiles.length > 0 && !session.packTitle) {
-    setSession(ctx.from!.id, { packTitle: text });
-    await ctx.reply('Choose one emoji to apply to all stickers:', FORCE_REPLY);
+    setSession(ctx.from!.id, { packTitle: text, awaitingEmojiPick: true, emojiPickPage: 0 });
+    const { emojiPickerKeyboard } = await import('./telegram/ui');
+    await ctx.reply('Choose an emoji for this pack (tap one):', emojiPickerKeyboard(0));
     return;
   }
 
-  // AI pack emoji handling
-  if (session.mode === 'pack' && session.packTitle && !session.emoji) {
+  // AI pack emoji handling - skip if using emoji picker
+  if (session.mode === 'pack' && session.packTitle && !session.emoji && !session.awaitingEmojiPick) {
+    // Fallback: allow typed emoji if user types one anyway
     await handlePackEmoji(ctx, text);
     return;
   }

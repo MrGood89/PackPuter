@@ -33,6 +33,8 @@ export interface Session {
   autoProceedSent?: boolean; // Track if auto-proceed message was sent
   stickerFormat?: 'static' | 'video'; // Sticker format for pack creation
   aiStyle?: AIStyle; // Pack style seed for consistency
+  awaitingEmojiPick?: boolean; // Track if waiting for emoji selection
+  emojiPickPage?: number; // Current page of emoji picker
 }
 
 const sessions = new Map<number, Session>();

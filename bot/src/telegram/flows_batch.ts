@@ -309,8 +309,11 @@ export async function handlePackTitle(ctx: Context, title: string) {
   const session = getSession(ctx.from!.id);
   if (session.mode !== 'batch' || session.chosenPackAction !== 'new') return;
 
-  setSession(ctx.from!.id, { packTitle: title });
-  await ctx.reply('Choose one emoji to apply to all stickers:', FORCE_REPLY);
+  setSession(ctx.from!.id, { packTitle: title, awaitingEmojiPick: true, emojiPickPage: 0 });
+  
+  // Use inline keyboard instead of force reply
+  const { emojiPickerKeyboard } = await import('./ui');
+  await ctx.reply('Choose an emoji for this pack (tap one):', emojiPickerKeyboard(0));
 }
 
 export async function handlePackEmoji(ctx: Context, emoji: string) {
@@ -332,9 +335,17 @@ export async function handlePackEmoji(ctx: Context, emoji: string) {
     return;
   }
 
-  if (!emoji || emoji.length > 2) {
+  // Validate emoji - allow up to 4 characters for complex emojis (e.g., with variation selectors)
+  if (!emoji || emoji.length > 4) {
     console.log(`[${packTimestamp}] [Pack Creation] Invalid emoji - EXITING`);
-    await ctx.reply('Please send a single emoji.', FORCE_REPLY);
+    // If using emoji picker, show it again instead of asking to type
+    const session = getSession(ctx.from!.id);
+    if (session.awaitingEmojiPick) {
+      const { emojiPickerKeyboard } = await import('./ui');
+      await ctx.reply('Please select an emoji from the buttons:', emojiPickerKeyboard(session.emojiPickPage || 0));
+    } else {
+      await ctx.reply('Please send a single emoji.', FORCE_REPLY);
+    }
     return;
   }
 
@@ -525,9 +536,16 @@ export async function handleExistingPackName(ctx: Context, packName: string) {
   
   if (!packEmoji) {
     console.error(`[${timestamp}] [Pack Creation] Failed to get emoji from pack "${resolvedPackName}"`);
+    // Show emoji picker instead of asking user to type
+    const { emojiPickerKeyboard } = await import('./ui');
+    setSession(ctx.from!.id, { 
+      awaitingEmojiPick: true, 
+      emojiPickPage: 0,
+      existingPackName: resolvedPackName // Keep the resolved name
+    });
     await ctx.reply(
-      `❌ I couldn't find that sticker pack.\n` +
-      `Send the full pack link (t.me/addstickers/...) or the full pack name ending with _by_${env.BOT_USERNAME.toLowerCase()}`
+      `Couldn't read the pack emoji. Pick one to apply to new stickers:`,
+      emojiPickerKeyboard(0)
     );
     return;
   }
