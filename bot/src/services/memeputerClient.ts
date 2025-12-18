@@ -149,19 +149,21 @@ const defaultBlueprints: Record<string, Blueprint> = {
 
 class MemeputerClient {
   private client: AxiosInstance | null = null;
-  private agentUrl: string;
-  private agentSecret: string;
+  private apiBase: string;
+  private apiKey: string;
+  private agentId: string;
 
   constructor() {
-    this.agentUrl = env.MEMEPUTER_AGENT_URL || '';
-    this.agentSecret = env.MEMEPUTER_AGENT_SECRET || '';
+    this.apiBase = env.MEMEPUTER_API_BASE || '';
+    this.apiKey = env.MEMEPUTER_API_KEY || '';
+    this.agentId = env.MEMEPUTER_AGENT_ID || '';
 
-    if (this.agentUrl) {
+    if (this.apiBase && this.apiKey) {
       this.client = axios.create({
-        baseURL: this.agentUrl,
+        baseURL: this.apiBase,
         timeout: 30000,
         headers: {
-          Authorization: `Bearer ${this.agentSecret}`,
+          Authorization: `Bearer ${this.apiKey}`,
         },
       });
     }
@@ -198,12 +200,14 @@ class MemeputerClient {
       template_id: templateId,
       has_context: !!projectContext,
       context_length: projectContext?.length || 0,
-      endpoint: `${this.agentUrl}/generate`,
+      endpoint: `${this.apiBase}/api/v1/agents/${this.agentId}/generate`,
     });
 
     try {
+      // Use Memeputer API endpoint for blueprint generation
+      const endpoint = `/api/v1/agents/${this.agentId}/generate`;
       const response = await this.client.post<MemeputerResponse>(
-        '/generate',
+        endpoint,
         request,
         {
           timeout: 60000, // 60 seconds for AI generation
