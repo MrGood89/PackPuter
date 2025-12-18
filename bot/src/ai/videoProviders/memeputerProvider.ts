@@ -10,7 +10,7 @@ import { VideoProvider, VideoGenerationOptions, VideoGenerationResult } from './
 import { stickerCache } from '../../services/cache';
 
 export class MemeputerVideoProvider implements VideoProvider {
-  private client: axios.AxiosInstance;
+  private client: AxiosInstance;
   private agentId: string;
 
   constructor() {
