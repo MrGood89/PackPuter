@@ -127,7 +127,7 @@ bot.action(/^emoji_pick:(.+)$/, async (ctx) => {
   
   // Validate emoji (basic check - should be single emoji, allow up to 4 chars for complex emojis)
   if (!emoji || emoji.length > 4) {
-    await ctx.answerCbQuery('Invalid emoji selected', true);
+    await ctx.answerCbQuery('Invalid emoji selected', { show_alert: true });
     return;
   }
   
