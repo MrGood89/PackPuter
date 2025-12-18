@@ -163,7 +163,8 @@ class MemeputerClient {
         baseURL: this.apiBase,
         timeout: 30000,
         headers: {
-          Authorization: `Bearer ${this.apiKey}`,
+          'x-api-key': this.apiKey, // Memeputer uses x-api-key header
+          'Content-Type': 'application/json',
         },
       });
     }
@@ -172,7 +173,8 @@ class MemeputerClient {
   async getBlueprint(
     templateId: string,
     projectContext?: string,
-    userPrompt?: string
+    userPrompt?: string,
+    baseImagePath?: string // Optional base image path for agent
   ): Promise<Blueprint> {
     const timestamp = new Date().toISOString();
     
@@ -204,15 +206,125 @@ class MemeputerClient {
     });
 
     try {
-      // Use Memeputer API endpoint for blueprint generation
-      const endpoint = `/api/v1/agents/${this.agentId}/generate`;
-      const response = await this.client.post<MemeputerResponse>(
+      // Memeputer API endpoint - /v1/agents/{id}/chat
+      const endpoint = `/v1/agents/${this.agentId}/chat`;
+      
+      // Memeputer agent expects: base_image, sticker_type, and message
+      // Format request according to agent's expected format
+      const chatRequest: any = {
+        message: `Generate a sticker blueprint JSON for template "${templateId}". ${projectContext ? `Context: ${projectContext}` : ''} Constraints: ${JSON.stringify(request.constraints)}. Return only valid JSON blueprint with duration_sec, fps, text, motion, and effects fields.`,
+        sticker_type: 'video', // Video stickers for animated blueprints
+      };
+      
+      // Include base_image if provided (agent needs it)
+      // The agent expects base_image as a URL or filename
+      // Since we have a local file path, we'll mention it in the message
+      // The agent might be able to work with just the description
+      if (baseImagePath) {
+        // Extract filename from path for agent
+        const filename = baseImagePath.split('/').pop() || baseImagePath;
+        chatRequest.base_image = filename; // Try sending filename
+        chatRequest.message += ` Base image filename: ${filename}`;
+      }
+      
+      console.log(`[${timestamp}] [Memeputer] Calling endpoint: ${this.apiBase}${endpoint}`);
+      console.log(`[${timestamp}] [Memeputer] Request:`, {
+        template: templateId,
+        has_context: !!projectContext,
+        sticker_type: chatRequest.sticker_type,
+      });
+      
+      const response = await this.client.post<any>(
         endpoint,
-        request,
+        chatRequest,
         {
           timeout: 60000, // 60 seconds for AI generation
         }
       );
+      
+      console.log(`[${timestamp}] [Memeputer] Response received:`, {
+        status: response.status,
+        has_data: !!response.data,
+        data_keys: response.data ? Object.keys(response.data) : [],
+      });
+      
+      // Memeputer returns: { data: { response: "JSON string", model: "...", temperature: ... } }
+      // The "response" field contains a JSON string that needs to be parsed
+      let agentResponse: any = null;
+      
+      // Parse response structure: response.data.data.response (nested JSON string)
+      if (response.data?.data?.response) {
+        // Parse the nested JSON string
+        try {
+          const responseStr = response.data.data.response;
+          agentResponse = typeof responseStr === 'string' ? JSON.parse(responseStr) : responseStr;
+          console.log(`[${timestamp}] [Memeputer] Parsed agent response from data.data.response:`, {
+            keys: Object.keys(agentResponse),
+            has_needs: !!agentResponse.needs,
+            has_blueprint: !!agentResponse.blueprint,
+            has_duration: !!agentResponse.duration_sec,
+          });
+        } catch (e) {
+          console.warn(`[${timestamp}] [Memeputer] Failed to parse response.data.data.response:`, e);
+          console.warn(`[${timestamp}] [Memeputer] Raw response string:`, response.data.data.response?.substring(0, 200));
+        }
+      } else if (response.data?.response) {
+        // Try direct response field (fallback)
+        try {
+          agentResponse = typeof response.data.response === 'string' 
+            ? JSON.parse(response.data.response)
+            : response.data.response;
+          console.log(`[${timestamp}] [Memeputer] Parsed agent response from data.response`);
+        } catch (e) {
+          agentResponse = response.data.response;
+        }
+      } else {
+        console.warn(`[${timestamp}] [Memeputer] No response field found in:`, Object.keys(response.data || {}));
+      }
+      
+      // Check if agent is asking for more parameters
+      if (agentResponse?.needs) {
+        console.warn(`[${timestamp}] [Memeputer] ⚠️ Agent needs more parameters:`, agentResponse.needs);
+        console.warn(`[${timestamp}] [Memeputer] Hint:`, agentResponse.hint);
+        // For now, we'll use fallback since we don't have base_image in blueprint generation
+        // (blueprint is about animation, not the base image itself)
+      }
+      
+      // Try to extract blueprint from response
+      let blueprint: Blueprint | undefined;
+      
+      if (agentResponse?.blueprint) {
+        blueprint = agentResponse.blueprint;
+      } else if (agentResponse?.duration_sec) {
+        // The response itself might be the blueprint
+        blueprint = agentResponse as Blueprint;
+      } else if (response.data?.blueprint) {
+        blueprint = response.data.blueprint;
+      } else if (response.data?.data?.blueprint) {
+        blueprint = response.data.data.blueprint;
+      }
+      
+      if (blueprint) {
+        console.log(`[${timestamp}] [Memeputer] ✅ Using AI-generated blueprint for ${templateId}`);
+        console.log(`[${timestamp}] [Memeputer] Blueprint details:`, {
+          duration: blueprint.duration_sec,
+          fps: blueprint.fps,
+          has_text: !!blueprint.text,
+          has_motion: !!blueprint.motion,
+          has_effects: !!blueprint.effects,
+        });
+        return blueprint;
+      }
+      
+      // If no blueprint found, check for error
+      if (response.data?.error || agentResponse?.error) {
+        console.error(`[${timestamp}] [Memeputer] ❌ AI agent returned error:`, response.data?.error || agentResponse?.error);
+      } else {
+        console.warn(`[${timestamp}] [Memeputer] ⚠️ No blueprint in response, using fallback`);
+        if (agentResponse) {
+          console.warn(`[${timestamp}] [Memeputer] Agent response keys:`, Object.keys(agentResponse));
+        }
+      }
 
       console.log(`[${timestamp}] [Memeputer] Response received:`, {
         has_blueprint: !!response.data.blueprint,

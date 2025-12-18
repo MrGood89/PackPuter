@@ -169,7 +169,8 @@ export async function handleTemplate(ctx: Context, templateInput: string) {
         const blueprint = await memeputerClient.getBlueprint(
           template,
           session.projectContext || undefined,
-          undefined // user_prompt - could be added later for custom instructions
+          undefined, // user_prompt - could be added later for custom instructions
+          baseImage.filePath // baseImagePath for agent
         );
 
         const blueprintJson = JSON.stringify(blueprint);

@@ -38,7 +38,7 @@ export async function generateStickerPNGs(options: ImageGenerationOptions): Prom
     const client = axios.create({
       baseURL: env.MEMEPUTER_API_BASE,
       headers: {
-        'Authorization': `Bearer ${env.MEMEPUTER_API_KEY}`,
+        'x-api-key': env.MEMEPUTER_API_KEY, // Memeputer uses x-api-key header
         'Content-Type': 'application/json',
       },
       timeout: 120000, // 2 minutes
@@ -56,11 +56,15 @@ export async function generateStickerPNGs(options: ImageGenerationOptions): Prom
       const imageMimeType = baseImagePath.endsWith('.png') ? 'image/png' : 'image/jpeg';
 
       // Call Memeputer API to generate image
-      // Using the agent's image generation endpoint
+      // Try chat endpoint - Memeputer might use /v1/agents/{id}/chat
+      const endpoint = `/v1/agents/${env.MEMEPUTER_AGENT_ID}/chat`;
+      
+      console.log(`[${timestamp}] [AI Image] Calling Memeputer: ${env.MEMEPUTER_API_BASE}${endpoint}`);
+      
       const response = await client.post(
-        `/api/v1/agents/${env.MEMEPUTER_AGENT_ID}/generate-image`,
+        endpoint,
         {
-          prompt: prompt,
+          message: `Generate a sticker image based on this prompt: ${prompt}. Base image provided as base64. Return image URL or base64.`,
           base_image: `data:${imageMimeType};base64,${imageBase64}`,
           size: '512x512',
           format: 'png',
