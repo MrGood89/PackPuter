@@ -204,9 +204,11 @@ def render_animation(
                     overlay = Image.new('RGBA', frame.size, (0, 0, 0, 100))
                     frame = Image.alpha_composite(frame, overlay)
             
+            # Initialize draw object (needed for text and sparkles)
+            draw = ImageDraw.Draw(frame)
+            
             # Add text with entrance animation
             if text_value:
-                draw = ImageDraw.Draw(frame)
                 font = None
                 
                 # Entrance animation
