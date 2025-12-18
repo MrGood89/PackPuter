@@ -218,13 +218,16 @@ class MemeputerClient {
       
       // Include base_image if provided (agent needs it)
       // The agent expects base_image as a URL or filename
-      // Since we have a local file path, we'll mention it in the message
-      // The agent might be able to work with just the description
+      // Since we have a local file path, we'll try sending it
       if (baseImagePath) {
         // Extract filename from path for agent
         const filename = baseImagePath.split('/').pop() || baseImagePath;
-        chatRequest.base_image = filename; // Try sending filename
-        chatRequest.message += ` Base image filename: ${filename}`;
+        chatRequest.base_image = filename; // Try sending filename first
+        // Also mention in message for context
+        chatRequest.message += ` Base image is available: ${filename}`;
+        console.log(`[${timestamp}] [Memeputer] Including base_image: ${filename}`);
+      } else {
+        console.log(`[${timestamp}] [Memeputer] No base_image provided - agent may ask for it`);
       }
       
       console.log(`[${timestamp}] [Memeputer] Calling endpoint: ${this.apiBase}${endpoint}`);
@@ -263,10 +266,11 @@ class MemeputerClient {
             has_needs: !!agentResponse.needs,
             has_blueprint: !!agentResponse.blueprint,
             has_duration: !!agentResponse.duration_sec,
+            full_response: JSON.stringify(agentResponse).substring(0, 500), // Log first 500 chars
           });
         } catch (e) {
           console.warn(`[${timestamp}] [Memeputer] Failed to parse response.data.data.response:`, e);
-          console.warn(`[${timestamp}] [Memeputer] Raw response string:`, response.data.data.response?.substring(0, 200));
+          console.warn(`[${timestamp}] [Memeputer] Raw response string:`, response.data.data.response?.substring(0, 500));
         }
       } else if (response.data?.response) {
         // Try direct response field (fallback)
@@ -286,8 +290,44 @@ class MemeputerClient {
       if (agentResponse?.needs) {
         console.warn(`[${timestamp}] [Memeputer] ⚠️ Agent needs more parameters:`, agentResponse.needs);
         console.warn(`[${timestamp}] [Memeputer] Hint:`, agentResponse.hint);
-        // For now, we'll use fallback since we don't have base_image in blueprint generation
-        // (blueprint is about animation, not the base image itself)
+        
+        // If agent needs base_image and we have it, make a follow-up request
+        if (agentResponse.needs.includes('base_image') && baseImagePath) {
+          console.log(`[${timestamp}] [Memeputer] Making follow-up request with base_image...`);
+          
+          // Try follow-up request with base_image
+          const followUpRequest: any = {
+            message: `Generate a sticker blueprint JSON for template "${templateId}". ${projectContext ? `Context: ${projectContext}` : ''} Constraints: ${JSON.stringify(request.constraints)}. Return only valid JSON blueprint with duration_sec, fps, text, motion, and effects fields.`,
+            sticker_type: 'video',
+            base_image: baseImagePath, // Try sending full path
+          };
+          
+          try {
+            const followUpResponse = await this.client.post<any>(
+              endpoint,
+              followUpRequest,
+              { timeout: 60000 }
+            );
+            
+            if (followUpResponse.data?.data?.response) {
+              const followUpStr = followUpResponse.data.data.response;
+              const followUpParsed = typeof followUpStr === 'string' ? JSON.parse(followUpStr) : followUpStr;
+              
+              console.log(`[${timestamp}] [Memeputer] Follow-up response:`, {
+                keys: Object.keys(followUpParsed),
+                has_blueprint: !!followUpParsed.blueprint,
+                has_duration: !!followUpParsed.duration_sec,
+              });
+              
+              // Check if follow-up has blueprint
+              if (followUpParsed.blueprint || followUpParsed.duration_sec) {
+                agentResponse = followUpParsed;
+              }
+            }
+          } catch (followUpError: any) {
+            console.warn(`[${timestamp}] [Memeputer] Follow-up request failed:`, followUpError.message);
+          }
+        }
       }
       
       // Try to extract blueprint from response
