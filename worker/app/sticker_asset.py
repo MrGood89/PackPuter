@@ -303,7 +303,8 @@ def validate_sticker_asset(img: Image.Image) -> bool:
         subject_height = np.sum(rows)
         height_ratio = subject_height / CANVAS_SIZE
         
-        if not (SUBJECT_HEIGHT_MIN <= height_ratio <= SUBJECT_HEIGHT_MAX):
+        # Use >= and <= with small epsilon to handle floating point precision
+        if not (SUBJECT_HEIGHT_MIN <= height_ratio <= SUBJECT_HEIGHT_MAX + 0.001):
             raise ValueError(f"Subject height must be {SUBJECT_HEIGHT_MIN*100}%-{SUBJECT_HEIGHT_MAX*100}% of canvas, got {height_ratio*100:.1f}%")
     
     # Check centered (rough check)
