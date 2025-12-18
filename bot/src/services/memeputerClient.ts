@@ -266,6 +266,9 @@ class MemeputerClient {
             has_needs: !!agentResponse.needs,
             has_blueprint: !!agentResponse.blueprint,
             has_duration: !!agentResponse.duration_sec,
+            has_timing: !!agentResponse.timing,
+            has_layers: !!agentResponse.layers,
+            type: agentResponse.type,
             full_response: JSON.stringify(agentResponse).substring(0, 500), // Log first 500 chars
           });
         } catch (e) {
@@ -331,12 +334,22 @@ class MemeputerClient {
       }
       
       // Try to extract blueprint from response
+      // The agent returns a structured format with timing, layers, motion, effects
       let blueprint: Blueprint | undefined;
       
-      if (agentResponse?.blueprint) {
+      // Check if agent returned the new structured format (has timing or type is video_sticker)
+      if (agentResponse && (agentResponse.timing || agentResponse.type === 'video_sticker')) {
+        // Convert agent's structured format to our Blueprint format
+        try {
+          blueprint = this.convertAgentBlueprintToInternal(agentResponse);
+          console.log(`[${timestamp}] [Memeputer] ✅ Converted agent blueprint format to internal format`);
+        } catch (convertError: any) {
+          console.error(`[${timestamp}] [Memeputer] ❌ Failed to convert agent blueprint:`, convertError.message);
+        }
+      } else if (agentResponse?.blueprint) {
         blueprint = agentResponse.blueprint;
       } else if (agentResponse?.duration_sec) {
-        // The response itself might be the blueprint
+        // The response itself might be the blueprint (old format)
         blueprint = agentResponse as Blueprint;
       } else if (response.data?.blueprint) {
         blueprint = response.data.blueprint;
@@ -410,6 +423,118 @@ class MemeputerClient {
     // Fallback to default
     console.warn(`[${timestamp}] [Memeputer] Using fallback blueprint for ${templateId}`);
     return defaultBlueprints[templateId] || defaultBlueprints.GM;
+  }
+
+  /**
+   * Convert agent's structured blueprint format to internal Blueprint format
+   * Agent returns: { timing: {duration_s, fps}, layers: [...], motion: [...], effects: [...] }
+   * We need: { duration_sec, fps, text: {...}, motion: {...}, effects: {...} }
+   */
+  private convertAgentBlueprintToInternal(agentBlueprint: any): Blueprint {
+    const timestamp = new Date().toISOString();
+    
+    // Extract timing
+    const timing = agentBlueprint.timing || {};
+    const duration_sec = timing.duration_s || timing.duration_sec || 2.8;
+    const fps = timing.fps || 30;
+    const loop = timing.loop !== false; // Default to true
+    
+    // Extract text from layers
+    let text: Blueprint['text'] | undefined;
+    const textLayer = agentBlueprint.layers?.find((l: any) => l.kind === 'text' || l.id === 'text');
+    if (textLayer) {
+      const style = textLayer.style || {};
+      text = {
+        value: textLayer.text || 'GM',
+        placement: this.extractTextPlacement(textLayer.transform, agentBlueprint.canvas),
+        stroke: style.stroke ? true : false,
+      };
+      if (style.size) {
+        // Store additional style info if needed
+        (text as any).fontSize = style.size;
+      }
+    }
+    
+    // Extract motion
+    let motion: Blueprint['motion'] | undefined;
+    const motionData = agentBlueprint.motion?.[0] || agentBlueprint.motion;
+    if (motionData) {
+      motion = {
+        type: this.mapMotionType(motionData.type),
+        amplitude_px: motionData.amp || motionData.amplitude_px || 10,
+        period_sec: motionData.period_s || motionData.period_sec || 1.0,
+      };
+    }
+    
+    // Extract effects
+    let effects: Blueprint['effects'] | undefined;
+    if (agentBlueprint.effects) {
+      effects = {};
+      if (Array.isArray(agentBlueprint.effects)) {
+        agentBlueprint.effects.forEach((eff: any) => {
+          if (eff.type === 'sparkles' || eff.kind === 'sparkles') {
+            effects!.sparkles = true;
+            effects!.sparkle_count = eff.count || 6;
+          }
+          if (eff.type === 'stars' || eff.kind === 'stars') {
+            effects!.stars = true;
+          }
+          if (eff.type === 'glow' || eff.kind === 'glow') {
+            effects!.glow = true;
+          }
+        });
+      } else if (typeof agentBlueprint.effects === 'object') {
+        if (agentBlueprint.effects.sparkles) effects.sparkles = true;
+        if (agentBlueprint.effects.stars) effects.stars = true;
+        if (agentBlueprint.effects.glow) effects.glow = true;
+      }
+    }
+    
+    // Extract face effects (blink)
+    let face: Blueprint['face'] | undefined;
+    if (agentBlueprint.face || agentBlueprint.layers?.some((l: any) => l.kind === 'face')) {
+      face = {
+        blink: true,
+        blink_every_sec: 2.0,
+      };
+    }
+    
+    const converted: Blueprint = {
+      duration_sec,
+      fps,
+      loop,
+    };
+    
+    if (text) converted.text = text;
+    if (motion) converted.motion = motion;
+    if (effects) converted.effects = effects;
+    if (face) converted.face = face;
+    
+    console.log(`[${timestamp}] [Memeputer] Converted blueprint:`, {
+      duration: converted.duration_sec,
+      fps: converted.fps,
+      has_text: !!converted.text,
+      has_motion: !!converted.motion,
+      has_effects: !!converted.effects,
+    });
+    
+    return converted;
+  }
+  
+  private extractTextPlacement(transform: any, canvas: any): 'top' | 'center' | 'bottom' {
+    if (!transform || !canvas) return 'top';
+    const y = transform.y || 0;
+    const canvasH = canvas.h || 512;
+    if (y < canvasH * 0.33) return 'top';
+    if (y > canvasH * 0.66) return 'bottom';
+    return 'center';
+  }
+  
+  private mapMotionType(agentType: string): 'bounce' | 'shake' | 'none' {
+    const type = (agentType || '').toLowerCase();
+    if (type.includes('bounce')) return 'bounce';
+    if (type.includes('shake')) return 'shake';
+    return 'none';
   }
 
   async getBlueprints(
