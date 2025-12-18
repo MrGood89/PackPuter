@@ -8,6 +8,13 @@ from PIL import Image, ImageFilter, ImageEnhance, ImageOps
 from typing import Tuple, Optional
 import logging
 
+# Check if scipy is available
+try:
+    import scipy.ndimage
+    HAS_SCIPY = True
+except ImportError:
+    HAS_SCIPY = False
+
 logger = logging.getLogger(__name__)
 
 # Sticker Style Contract constants
