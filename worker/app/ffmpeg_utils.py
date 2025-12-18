@@ -3,8 +3,8 @@ import json
 import os
 from typing import Tuple, Optional
 
-def probe_media(path: str) -> Tuple[float, int, int, float, Optional[str]]:
-    """Probe media file and return (duration, width, height, fps, pix_fmt)."""
+def probe_media(path: str) -> Tuple[float, int, int, float, Optional[str], bool]:
+    """Probe media file and return (duration, width, height, fps, pix_fmt, has_audio)."""
     try:
         cmd = [
             'ffprobe',
@@ -18,10 +18,12 @@ def probe_media(path: str) -> Tuple[float, int, int, float, Optional[str]]:
         data = json.loads(result.stdout)
         
         video_stream = None
+        audio_stream = None
         for stream in data.get('streams', []):
             if stream.get('codec_type') == 'video':
                 video_stream = stream
-                break
+            elif stream.get('codec_type') == 'audio':
+                audio_stream = stream
         
         if not video_stream:
             raise ValueError('No video stream found')
@@ -30,6 +32,7 @@ def probe_media(path: str) -> Tuple[float, int, int, float, Optional[str]]:
         width = int(video_stream.get('width', 512))
         height = int(video_stream.get('height', 512))
         pix_fmt = video_stream.get('pix_fmt', None)
+        has_audio = bool(audio_stream)
         
         # Get FPS
         fps_str = video_stream.get('r_frame_rate', '30/1')
@@ -39,10 +42,10 @@ def probe_media(path: str) -> Tuple[float, int, int, float, Optional[str]]:
         else:
             fps = float(fps_str)
         
-        return duration, width, height, fps, pix_fmt
+        return duration, width, height, fps, pix_fmt, has_audio
     except Exception as e:
         print(f"Error probing media: {e}")
-        return 3.0, 512, 512, 30.0, None
+        return 3.0, 512, 512, 30.0, None, False
 
 def encode_webm(
     input_path: str,
@@ -50,13 +53,30 @@ def encode_webm(
     fps: int,
     crf: int,
     side: int,
-    duration: Optional[float] = None
+    duration: Optional[float] = None,
+    preserve_alpha: bool = True
 ) -> bool:
-    """Encode video to WEBM VP9 with specified parameters."""
+    """
+    Encode video to WEBM VP9 with specified parameters.
+    
+    Args:
+        preserve_alpha: If True, ensures output has alpha channel (yuva420p)
+    """
     try:
-        # Scale and pad filter
+        # First, check if input has alpha by probing
+        _, _, _, _, input_pix_fmt, _ = probe_media(input_path)
+        has_input_alpha = input_pix_fmt and 'yuva' in input_pix_fmt.lower()
+        
+        # Scale filter - maintain aspect ratio
         scale_filter = f"scale='if(gt(iw,ih),{side},-1)':'if(gt(iw,ih),-1,{side})'"
-        pad_filter = f"pad={side}:{side}:(ow-iw)/2:(oh-ih)/2:color=0x00000000"
+        
+        # Pad filter - use transparent color if preserving alpha
+        if preserve_alpha or has_input_alpha:
+            # Use transparent black for padding (alpha=0)
+            pad_filter = f"pad={side}:{side}:(ow-iw)/2:(oh-ih)/2:color=0x00000000@0"
+        else:
+            # Use opaque black if no alpha
+            pad_filter = f"pad={side}:{side}:(ow-iw)/2:(oh-ih)/2:color=0x00000000"
         
         cmd = [
             'ffmpeg',
@@ -84,6 +104,13 @@ def encode_webm(
             text=True,
             check=True
         )
+        
+        # Verify output has alpha
+        _, _, _, _, output_pix_fmt, _ = probe_media(out_path)
+        if preserve_alpha and output_pix_fmt and 'yuva' not in output_pix_fmt.lower():
+            print(f"WARNING: Output video missing alpha! pix_fmt={output_pix_fmt}")
+            return False
+        
         return True
     except subprocess.CalledProcessError as e:
         print(f"FFmpeg error: {e.stderr}")

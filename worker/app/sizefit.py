@@ -20,7 +20,7 @@ def fit_to_limits(
     Returns (output_path, metadata).
     """
     # Probe input
-    duration, width, height, fps, pix_fmt = probe_media(input_path)
+    duration, width, height, fps, pix_fmt, has_audio = probe_media(input_path)
     
     # Trim to max duration
     actual_duration = min(duration, MAX_SECONDS, prefer_seconds)
@@ -60,8 +60,8 @@ def fit_to_limits(
                     f'sticker_{timestamp}_{unique_id}_{side}_{fps_val}_{crf_val}.webm'
                 )
                 
-                # Try encoding
-                if encode_webm(input_path, output_path, fps_val, crf_val, side, actual_duration):
+                # Try encoding (preserve alpha for transparent stickers)
+                if encode_webm(input_path, output_path, fps_val, crf_val, side, actual_duration, preserve_alpha=True):
                     size_kb = get_file_size_kb(output_path)
                     
                     if size_kb <= MAX_STICKER_KB and size_kb < best_size:
@@ -75,7 +75,7 @@ def fit_to_limits(
                         best_path = output_path
                         best_size = size_kb
                         # Probe output to get actual pixel format
-                        _, _, _, _, output_pix_fmt = probe_media(output_path)
+                        _, _, _, _, output_pix_fmt, output_has_audio = probe_media(output_path)
                         best_metadata = {
                             'duration': actual_duration,
                             'kb': size_kb,

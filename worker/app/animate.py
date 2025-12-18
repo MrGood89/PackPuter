@@ -99,7 +99,7 @@ def animate_from_asset(
     
     # Add pixel format to metadata
     try:
-        _, _, _, _, pix_fmt = probe_media(output_path)
+        _, _, _, _, pix_fmt, _ = probe_media(output_path)
         metadata['pix_fmt'] = pix_fmt
     except Exception as e:
         logger.warning(f"Could not probe pixel format: {e}")

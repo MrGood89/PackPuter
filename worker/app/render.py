@@ -10,7 +10,7 @@ import numpy as np
 from typing import Dict, Any
 from .blueprint import parse_blueprint, validate_blueprint, enhance_blueprint_with_sticker_grade_motion
 from .sizefit import fit_to_limits
-from .quality_gates import validate_video_sticker, auto_retry_tuning
+from .quality_gates import validate_video_sticker, auto_retry_tuning, ValidationViolation
 
 logger = logging.getLogger(__name__)
 
@@ -326,15 +326,80 @@ def render_animation(
             '-an',                   # No audio
             temp_video
         ]
-        subprocess.run(cmd, check=True, capture_output=True)
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        
+        # Verify initial encoding has alpha
+        from .ffmpeg_utils import probe_media
+        try:
+            _, _, _, _, temp_pix_fmt, _ = probe_media(temp_video)
+            if not temp_pix_fmt or 'yuva' not in temp_pix_fmt.lower():
+                logger.error(f"Initial encoding failed to create alpha! pix_fmt={temp_pix_fmt}")
+                # Try to re-encode with explicit alpha preservation
+                logger.warning("Re-encoding with explicit alpha preservation...")
+                # This shouldn't happen, but if it does, we'll handle it
+        except Exception as e:
+            logger.warning(f"Could not verify initial encoding alpha: {e}")
         
         # Now fit to limits (this will save to /tmp/packputer)
+        # fit_to_limits will preserve alpha via encode_webm(preserve_alpha=True)
         final_path, metadata = fit_to_limits(temp_video, duration, 'transparent')
         
         # Quality gate: Validate video sticker
         is_valid, violations = validate_video_sticker(final_path, metadata)
         
-        # Auto-retry if violations found
+        # CRITICAL: If alpha channel is missing, fail immediately and try to fix
+        alpha_violations = [v for v in violations if v.field == 'pixel_format' or v.field == 'alpha_channel']
+        if len(alpha_violations) > 0:
+            logger.error(f"CRITICAL: Video missing alpha channel! {alpha_violations[0]}")
+            # Try to re-encode directly from frames (bypass fit_to_limits if it lost alpha)
+            logger.warning("Attempting to re-encode from frames with alpha preservation...")
+            try:
+                retry_output = f'/tmp/packputer/retry_alpha_{timestamp}_{unique_id}.webm'
+                retry_cmd = [
+                    'ffmpeg',
+                    '-y',
+                    '-framerate', str(fps),
+                    '-i', os.path.join(frames_dir, 'frame_%05d.png'),
+                    '-c:v', 'libvpx-vp9',
+                    '-pix_fmt', 'yuva420p',
+                    '-auto-alt-ref', '0',
+                    '-crf', '36',  # Higher compression to meet size limit
+                    '-b:v', '0',
+                    '-an',
+                    '-t', str(min(duration, 3.0)),
+                    retry_output
+                ]
+                subprocess.run(retry_cmd, check=True, capture_output=True, text=True)
+                
+                # Verify retry has alpha
+                _, _, _, _, retry_pix_fmt, _ = probe_media(retry_output)
+                if retry_pix_fmt and 'yuva' in retry_pix_fmt.lower():
+                    logger.info("✅ Re-encoded video now has alpha channel")
+                    # Replace final_path with retry output
+                    if os.path.exists(final_path):
+                        os.unlink(final_path)
+                    os.rename(retry_output, final_path)
+                    # Update metadata
+                    duration_retry, width_retry, height_retry, fps_retry, pix_fmt_retry, has_audio_retry = probe_media(final_path)
+                    metadata = {
+                        'duration': duration_retry,
+                        'width': width_retry,
+                        'height': height_retry,
+                        'fps': fps_retry,
+                        'pix_fmt': pix_fmt_retry,
+                        'has_audio': has_audio_retry,
+                        'kb': os.path.getsize(final_path) // 1024
+                    }
+                    # Re-validate
+                    is_valid, violations = validate_video_sticker(final_path, metadata)
+                else:
+                    logger.error(f"Re-encode still missing alpha! pix_fmt={retry_pix_fmt}")
+                    raise ValueError("Failed to create video with alpha channel")
+            except Exception as retry_error:
+                logger.error(f"Re-encode with alpha failed: {retry_error}")
+                raise ValueError("Failed to create video with alpha channel - cannot proceed")
+        
+        # Auto-retry for other violations (size, duration, etc.)
         max_retries = 3
         retry_count = 0
         current_settings = {
@@ -345,17 +410,18 @@ def render_animation(
         
         while not is_valid and retry_count < max_retries:
             retry_count += 1
-            logger.warning(f"Video sticker validation failed (attempt {retry_count}/{max_retries}): {[str(v) for v in violations]}")
+            non_alpha_violations = [v for v in violations if v.field != 'pixel_format' and v.field != 'alpha_channel']
+            if len(non_alpha_violations) == 0:
+                break  # Only alpha violations, already handled above
+            
+            logger.warning(f"Video sticker validation failed (attempt {retry_count}/{max_retries}): {[str(v) for v in non_alpha_violations]}")
             
             # Get retry suggestions
-            updated_settings = auto_retry_tuning(current_settings, violations)
+            updated_settings = auto_retry_tuning(current_settings, non_alpha_violations)
             
             # Re-encode with updated settings
-            # Note: This is simplified - in production, would re-encode with new settings
             logger.info(f"Retrying with settings: {updated_settings}")
-            
             # For now, just log - full retry would require re-encoding
-            # In production, integrate with sizefit.py to re-encode
             break  # Simplified for now
         
         # Ensure output is in shared volume

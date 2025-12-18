@@ -116,9 +116,8 @@ def validate_video_sticker(video_path: str, metadata: Optional[Dict[str, Any]] =
         # Probe video file
         from .ffmpeg_utils import probe_media
         try:
-            duration, width, height, fps, pix_fmt = probe_media(video_path)
+            duration, width, height, fps, pix_fmt, has_audio = probe_media(video_path)
             kb = os.path.getsize(video_path) / 1024
-            has_audio = False  # Would need to check streams
         except Exception as e:
             logger.error(f"Error probing video: {e}")
             violations.append(ValidationViolation(
@@ -142,7 +141,7 @@ def validate_video_sticker(video_path: str, metadata: Optional[Dict[str, Any]] =
         # Try to probe if not in metadata
         from .ffmpeg_utils import probe_media
         try:
-            _, _, _, _, pix_fmt = probe_media(video_path)
+            _, _, _, _, pix_fmt, _ = probe_media(video_path)
             if pix_fmt and 'yuva' not in pix_fmt.lower():
                 violations.append(ValidationViolation(
                     'pixel_format',
