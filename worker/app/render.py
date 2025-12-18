@@ -315,11 +315,13 @@ def render_animation(
         
         # Use ffmpeg to create video from frames with alpha channel
         # CRITICAL: Must use yuva420p for transparency (not yuv420p)
+        # Explicitly convert input to RGBA format to ensure alpha is preserved
         cmd = [
             'ffmpeg',
             '-y',
             '-framerate', str(fps),
             '-i', os.path.join(frames_dir, 'frame_%05d.png'),
+            '-vf', 'format=rgba',    # Explicitly ensure RGBA format in filter chain
             '-c:v', 'libvpx-vp9',
             '-pix_fmt', 'yuva420p',  # VP9 with alpha channel (CRITICAL for transparency)
             '-auto-alt-ref', '0',    # Important for alpha in VP9
@@ -330,21 +332,77 @@ def render_animation(
         ]
         result = subprocess.run(cmd, check=True, capture_output=True, text=True)
         
+        # Log FFmpeg output for debugging
+        if result.stderr:
+            logger.debug(f"FFmpeg encoding stderr: {result.stderr[:500]}")
+        
         # Verify initial encoding has alpha
         from .ffmpeg_utils import probe_media
+        initial_has_alpha = False
         try:
             _, _, _, _, temp_pix_fmt, _ = probe_media(temp_video)
-            if not temp_pix_fmt or 'yuva' not in temp_pix_fmt.lower():
+            if temp_pix_fmt and 'yuva' in temp_pix_fmt.lower():
+                initial_has_alpha = True
+                logger.info(f"Initial encoding has alpha: {temp_pix_fmt}")
+            else:
                 logger.error(f"Initial encoding failed to create alpha! pix_fmt={temp_pix_fmt}")
-                # Try to re-encode with explicit alpha preservation
-                logger.warning("Re-encoding with explicit alpha preservation...")
-                # This shouldn't happen, but if it does, we'll handle it
+                logger.warning("Will skip fit_to_limits and encode directly from frames with alpha")
         except Exception as e:
             logger.warning(f"Could not verify initial encoding alpha: {e}")
         
-        # Now fit to limits (this will save to /tmp/packputer)
-        # fit_to_limits will preserve alpha via encode_webm(preserve_alpha=True)
-        final_path, metadata = fit_to_limits(temp_video, duration, 'transparent')
+        # If initial encoding has alpha, use fit_to_limits to optimize size
+        # Otherwise, encode directly from frames (skip fit_to_limits which can't restore alpha)
+        if initial_has_alpha:
+            # Now fit to limits (this will save to /tmp/packputer)
+            # fit_to_limits will preserve alpha via encode_webm(preserve_alpha=True)
+            final_path, metadata = fit_to_limits(temp_video, duration, 'transparent')
+        else:
+            # Initial encoding failed - encode directly from frames with explicit alpha
+            logger.warning("Encoding directly from frames to ensure alpha channel...")
+            final_path = f'/tmp/packputer/final_alpha_{timestamp}_{unique_id}.webm'
+            direct_cmd = [
+                'ffmpeg',
+                '-y',
+                '-framerate', str(fps),
+                '-i', os.path.join(frames_dir, 'frame_%05d.png'),
+                '-vf', 'format=rgba',    # Explicitly ensure RGBA format in filter chain
+                '-c:v', 'libvpx-vp9',
+                '-pix_fmt', 'yuva420p',
+                '-auto-alt-ref', '0',
+                '-crf', '36',  # Higher compression to meet size limit
+                '-b:v', '0',
+                '-an',
+                '-t', str(min(duration, 3.0)),
+                final_path
+            ]
+            direct_result = subprocess.run(direct_cmd, check=True, capture_output=True, text=True)
+            if direct_result.stderr:
+                logger.debug(f"FFmpeg direct encoding stderr: {direct_result.stderr[:500]}")
+            
+            # Probe for metadata
+            duration_probe, width_probe, height_probe, fps_probe, pix_fmt_probe, has_audio_probe = probe_media(final_path)
+            metadata = {
+                'duration': duration_probe,
+                'width': width_probe,
+                'height': height_probe,
+                'fps': fps_probe,
+                'pix_fmt': pix_fmt_probe,
+                'has_audio': has_audio_probe,
+                'kb': os.path.getsize(final_path) // 1024
+            }
+            
+            # Verify alpha was created
+            if not pix_fmt_probe or 'yuva' not in pix_fmt_probe.lower():
+                logger.error(f"Direct encoding from frames also failed to create alpha! pix_fmt={pix_fmt_probe}")
+                raise ValueError("Failed to create video with alpha channel - cannot proceed")
+            else:
+                logger.info(f"✅ Direct encoding from frames has alpha: {pix_fmt_probe}")
+                
+                # Now run fit_to_limits on the direct-encoded file to ensure size compliance
+                # Since it has alpha, fit_to_limits should preserve it
+                if metadata.get('kb', 0) > 256:
+                    logger.info(f"Direct encoded file is {metadata.get('kb')}KB, running fit_to_limits to optimize...")
+                    final_path, metadata = fit_to_limits(final_path, duration, 'transparent')
         
         # Quality gate: Validate video sticker
         is_valid, violations = validate_video_sticker(final_path, metadata)
@@ -362,6 +420,7 @@ def render_animation(
                     '-y',
                     '-framerate', str(fps),
                     '-i', os.path.join(frames_dir, 'frame_%05d.png'),
+                    '-vf', 'format=rgba',    # Explicitly ensure RGBA format in filter chain
                     '-c:v', 'libvpx-vp9',
                     '-pix_fmt', 'yuva420p',
                     '-auto-alt-ref', '0',
@@ -371,7 +430,9 @@ def render_animation(
                     '-t', str(min(duration, 3.0)),
                     retry_output
                 ]
-                subprocess.run(retry_cmd, check=True, capture_output=True, text=True)
+                retry_result = subprocess.run(retry_cmd, check=True, capture_output=True, text=True)
+                if retry_result.stderr:
+                    logger.debug(f"FFmpeg retry stderr: {retry_result.stderr[:500]}")
                 
                 # Verify retry has alpha
                 _, _, _, _, retry_pix_fmt, _ = probe_media(retry_output)
