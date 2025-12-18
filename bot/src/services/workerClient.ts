@@ -2,6 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import FormData from 'form-data';
 import fs from 'fs';
 import { env } from '../env';
+import { stickerCache } from './cache';
 
 export interface ConvertResponse {
   output_path: string;
@@ -88,6 +89,35 @@ class WorkerClient {
         headers: formData.getHeaders(),
       }
     );
+
+    return response.data;
+  }
+
+  async prepareAsset(baseImagePath: string): Promise<{ output_path: string; status: string }> {
+    // Check cache first
+    const cacheKey = stickerCache.generateKey(baseImagePath, {});
+    const cached = stickerCache.get(cacheKey);
+    
+    if (cached && fs.existsSync(cached)) {
+      console.log(`[Worker Client] Using cached asset: ${cached}`);
+      return { output_path: cached, status: 'cached' };
+    }
+    
+    const formData = new FormData();
+    formData.append('base_image', fs.createReadStream(baseImagePath));
+
+    const response = await this.client.post<{ output_path: string; status: string }>(
+      '/sticker/prepare-asset',
+      formData,
+      {
+        headers: formData.getHeaders(),
+      }
+    );
+
+    // Cache the prepared asset
+    if (response.data.output_path && fs.existsSync(response.data.output_path)) {
+      stickerCache.set(cacheKey, response.data.output_path);
+    }
 
     return response.data;
   }

@@ -8,6 +8,8 @@ import { getTempFilePath, cleanupFile } from '../util/file';
 import { FORCE_REPLY } from './menus';
 import { generateStickerPNGs } from '../services/memeputerImageClient';
 import { postprocessStickerPng } from '../services/stickerPostprocess';
+import { workerClient } from '../services/workerClient';
+import { getTemplate } from '../ai/templates/stickers';
 import {
   createStickerSet,
   addStickerToSet,
@@ -67,11 +69,29 @@ async function handleImageUpload(ctx: Context) {
       });
       fs.writeFileSync(filePath, Buffer.from(response.data));
 
-      setSession(ctx.from!.id, { uploadedFiles: [{ fileId: fileId!, filePath }] });
-
-      await ctx.reply(
-        'What is this project/coin/mascot about? (vibe, inside jokes, do\'s/don\'ts, colors, keywords)\n\nOr send /skip to skip.',
-      );
+      // Prepare asset using worker (asset-first pipeline)
+      await ctx.reply('🎨 Preparing sticker asset (removing background, adding outline)...');
+      try {
+        const assetResult = await workerClient.prepareAsset(filePath);
+        const assetPath = assetResult.output_path;
+        
+        // Update session with prepared asset
+        setSession(ctx.from!.id, { uploadedFiles: [{ fileId: fileId!, filePath: assetPath }] });
+        
+        // Cleanup original file
+        cleanupFile(filePath);
+        
+        await ctx.reply(
+          'What is this project/coin/mascot about? (vibe, inside jokes, do\'s/don\'ts, colors, keywords)\n\nOr send /skip to skip.',
+        );
+      } catch (assetError: any) {
+        console.error('Asset preparation error:', assetError);
+        // Fallback: use original image
+        setSession(ctx.from!.id, { uploadedFiles: [{ fileId: fileId!, filePath }] });
+        await ctx.reply(
+          '⚠️ Asset preparation failed, using original image.\n\nWhat is this project/coin/mascot about? (vibe, inside jokes, do\'s/don\'ts, colors, keywords)\n\nOr send /skip to skip.',
+        );
+      }
     } catch (error: any) {
       console.error('Image download error:', error);
       await ctx.reply('❌ Failed to download image.');
@@ -145,9 +165,12 @@ export async function handleAIImageTemplate(ctx: Context, templateInput: string)
         }
 
         try {
-          // Generate PNG stickers using AI service
+          // Get template definition for better prompts
+          const templateDef = getTemplate(template);
+          
+          // Generate PNG stickers using AI service (asset-first: baseImage.filePath is already prepared asset)
           const pngPaths = await generateStickerPNGs({
-            baseImagePath: baseImage.filePath,
+            baseImagePath: baseImage.filePath, // This is the prepared asset
             context: session.projectContext || undefined,
             template: template,
             count: variationsPerTemplate,
@@ -200,7 +223,11 @@ export async function handleAIImageTemplate(ctx: Context, templateInput: string)
         autoProceedSent: false,
       });
 
-      cleanupFile(baseImage.filePath);
+      // Cleanup asset (original base image was already cleaned up)
+      if (fs.existsSync(baseImage.filePath)) {
+        cleanupFile(baseImage.filePath);
+        console.log(`[${new Date().toISOString()}] [AI Image] Cleaned up asset: ${baseImage.filePath}`);
+      }
     } catch (error: any) {
       console.error('AI image generation error:', error);
       await ctx.reply('❌ Failed to generate stickers.');

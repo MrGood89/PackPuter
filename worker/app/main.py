@@ -1,12 +1,17 @@
 import os
 import secrets
 import time
+import logging
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from typing import List, Optional
 from .convert import convert_file
 from .batch import batch_convert_files
 from .render import render_animation
+from .sticker_asset import prepareStickerAsset, validate_sticker_asset
+from .quality_gates import validate_image_sticker, validate_video_sticker
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="PackPuter Worker")
 
@@ -102,6 +107,53 @@ async def ai_render_endpoint(
                 except:
                     pass
     except Exception as e:
+        return JSONResponse(
+            {"error": str(e)},
+            status_code=500
+        )
+
+@app.post("/sticker/prepare-asset")
+async def prepare_asset_endpoint(
+    base_image: UploadFile = File(...)
+):
+    """Prepare a base image into a Telegram-ready sticker asset."""
+    try:
+        # Save uploaded file temporarily
+        temp_dir = '/tmp/packputer'
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        suffix = os.path.splitext(base_image.filename or 'input')[1] or '.png'
+        timestamp = int(time.time() * 1000)
+        temp_input = os.path.join(temp_dir, f'asset_input_{timestamp}_{secrets.token_hex(8)}{suffix}')
+        
+        with open(temp_input, 'wb') as tmp:
+            await base_image.seek(0)
+            content = await base_image.read()
+            tmp.write(content)
+        
+        # Prepare asset
+        output_path = prepareStickerAsset(temp_input)
+        
+        # Quality gate: Validate prepared asset
+        try:
+            from PIL import Image
+            img = Image.open(output_path)
+            validate_sticker_asset(img)
+            is_valid = True
+            violations = []
+        except Exception as e:
+            is_valid = False
+            violations = [str(e)]
+            logger.warning(f"Asset validation failed: {e}")
+        
+        return JSONResponse({
+            "output_path": output_path,
+            "status": "success" if is_valid else "warning",
+            "validated": is_valid,
+            "violations": violations if not is_valid else []
+        })
+    except Exception as e:
+        logger.error(f"Error preparing sticker asset: {e}")
         return JSONResponse(
             {"error": str(e)},
             status_code=500

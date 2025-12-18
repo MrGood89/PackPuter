@@ -3,6 +3,7 @@ import fs from 'fs';
 import FormData from 'form-data';
 import { getTempFilePath } from '../util/file';
 import { env } from '../env';
+import { stickerCache } from './cache';
 
 export interface ImageGenerationOptions {
   baseImagePath: string;
@@ -24,6 +25,23 @@ export async function generateStickerPNGs(options: ImageGenerationOptions): Prom
     hasContext: !!context,
     baseImage: baseImagePath,
   });
+
+  // Check cache first
+  const cacheKey = stickerCache.generateKey(baseImagePath, {
+    template,
+    context,
+    count,
+  });
+  
+  // For multiple stickers, we can't use cache (each is unique)
+  // But we can cache the prepared asset
+  if (count === 1) {
+    const cached = stickerCache.get(cacheKey);
+    if (cached && fs.existsSync(cached)) {
+      console.log(`[${timestamp}] [AI Image] Using cached sticker: ${cached}`);
+      return [cached];
+    }
+  }
 
   // Check if Memeputer is configured
   if (!env.MEMEPUTER_API_KEY || !env.MEMEPUTER_AGENT_ID) {
