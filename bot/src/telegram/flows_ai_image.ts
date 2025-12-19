@@ -19,42 +19,63 @@ import {
 
 export function setupAIImageFlow(bot: Telegraf) {
   const setupTimestamp = new Date().toISOString();
-  console.log(`[${setupTimestamp}] [AI Image Flow] Registering photo and document handlers`);
+  console.log(`[${setupTimestamp}] [AI Image Flow] ===== SETUP START =====`);
+  console.log(`[${setupTimestamp}] [AI Image Flow] Registering middleware for photo and document handlers`);
   
-  // Use middleware approach to catch ALL messages with photos/documents
-  // This ensures we check before other handlers consume the update
-  bot.use(async (ctx: Context, next: () => Promise<void>) => {
-    const session = getSession(ctx.from!.id);
-    
-    // Only process if in ai_image mode
-    if (session.mode !== 'ai_image') {
-      return next(); // Let other handlers process
-    }
-    
-    // Check for photo
-    if (ctx.message && 'photo' in ctx.message && ctx.message.photo) {
-      const timestamp = new Date().toISOString();
-      console.log(`[${timestamp}] [AI Image Flow Middleware] Photo detected for user ${ctx.from?.id}`);
-      await handleImageUpload(ctx);
-      return; // Don't call next() - we handled it
-    }
-    
-    // Check for document (image)
-    if (ctx.message && 'document' in ctx.message && ctx.message.document?.mime_type) {
-      const mimeType = ctx.message.document.mime_type;
-      if (isValidImageFile(mimeType)) {
+  try {
+    // Use middleware approach to catch ALL messages with photos/documents
+    // This ensures we check before other handlers consume the update
+    bot.use(async (ctx: Context, next: () => Promise<void>) => {
+      try {
+        // Early return if not a message
+        if (!ctx.message || !ctx.from) {
+          return next();
+        }
+        
+        const session = getSession(ctx.from.id);
         const timestamp = new Date().toISOString();
-        console.log(`[${timestamp}] [AI Image Flow Middleware] Image document detected for user ${ctx.from?.id}, mimeType: ${mimeType}`);
-        await handleImageUpload(ctx);
-        return; // Don't call next() - we handled it
+        
+        // Only process if in ai_image mode
+        if (session.mode !== 'ai_image') {
+          return next(); // Let other handlers process
+        }
+        
+        console.log(`[${timestamp}] [AI Image Flow Middleware] Message received in ai_image mode for user ${ctx.from.id}`);
+        
+        // Check for photo
+        if ('photo' in ctx.message && ctx.message.photo && ctx.message.photo.length > 0) {
+          console.log(`[${timestamp}] [AI Image Flow Middleware] ✅ Photo detected for user ${ctx.from.id}, photo count: ${ctx.message.photo.length}`);
+          await handleImageUpload(ctx);
+          return; // Don't call next() - we handled it
+        }
+        
+        // Check for document (image)
+        if ('document' in ctx.message && ctx.message.document?.mime_type) {
+          const mimeType = ctx.message.document.mime_type;
+          console.log(`[${timestamp}] [AI Image Flow Middleware] Document detected for user ${ctx.from.id}, mimeType: ${mimeType}`);
+          if (isValidImageFile(mimeType)) {
+            console.log(`[${timestamp}] [AI Image Flow Middleware] ✅ Image document detected for user ${ctx.from.id}`);
+            await handleImageUpload(ctx);
+            return; // Don't call next() - we handled it
+          } else {
+            console.log(`[${timestamp}] [AI Image Flow Middleware] Document is not a valid image file`);
+          }
+        }
+        
+        // Not a photo/document or not an image - let other handlers process
+        return next();
+      } catch (error) {
+        console.error(`[AI Image Flow Middleware] Error in middleware:`, error);
+        return next(); // Continue to other handlers on error
       }
-    }
+    });
     
-    // Not a photo/document or not an image - let other handlers process
-    return next();
-  });
-  
-  console.log(`[${setupTimestamp}] [AI Image Flow] Middleware registered successfully`);
+    console.log(`[${setupTimestamp}] [AI Image Flow] ✅ Middleware registered successfully`);
+    console.log(`[${setupTimestamp}] [AI Image Flow] ===== SETUP END =====`);
+  } catch (error) {
+    console.error(`[${setupTimestamp}] [AI Image Flow] ❌ ERROR during setup:`, error);
+    throw error;
+  }
 }
 
 async function handleImageUpload(ctx: Context) {

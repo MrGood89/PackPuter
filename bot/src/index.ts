@@ -195,9 +195,15 @@ bot.action(/^emoji_pick:(.+)$/, async (ctx) => {
 // Setup file upload handlers
 // IMPORTANT: Order matters! AI Image flow must be registered FIRST so it can intercept
 // messages before batch flow processes them
+console.log('[Bot Startup] Registering AI Image Flow...');
 setupAIImageFlow(bot);  // Register FIRST - checks mode and intercepts if needed
+console.log('[Bot Startup] AI Image Flow registered');
+console.log('[Bot Startup] Registering Batch Convert Flow...');
 setupBatchConvertFlow(bot);
+console.log('[Bot Startup] Batch Convert Flow registered');
+console.log('[Bot Startup] Registering AI Flows...');
 setupAIFlows(bot);
+console.log('[Bot Startup] AI Flows registered');
 
 // Debug: Log all message updates to see what we're receiving
 bot.use(async (ctx, next) => {
