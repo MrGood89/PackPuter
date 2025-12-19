@@ -42,19 +42,15 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
   }
 
   try {
+    // Memeputer API client - will use multipart/form-data for requests with images
     const client = axios.create({
       baseURL: env.MEMEPUTER_API_BASE,
       headers: {
         'x-api-key': env.MEMEPUTER_API_KEY,
-        'Content-Type': 'application/json',
+        // Don't set Content-Type here - FormData will set it with boundary
       },
       timeout: 120000, // 2 minutes
     });
-
-    // Read base image as base64
-    const imageBuffer = fs.readFileSync(baseImagePath);
-    const imageBase64 = imageBuffer.toString('base64');
-    const imageMimeType = baseImagePath.endsWith('.png') ? 'image/png' : 'image/jpeg';
 
     // Build prompt - be more explicit about what we need
     let prompt: string;
@@ -80,37 +76,78 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
     // Call Memeputer API - Agent expects specific fields based on knowledge base
     const endpoint = `/v1/agents/${env.MEMEPUTER_AGENT_ID}/chat`;
     
-    // Build request according to agent contract from knowledge base
-    // Agent expects: base_image_ref, sticker_format, user_context, mode, template_id, user_prompt
-    const requestBody: any = {
-      message: prompt, // Keep message for backward compatibility
-      base_image: `data:${imageMimeType};base64,${imageBase64}`, // Send actual image data
-      base_image_ref: 'uploaded_asset', // Reference string for agent (required by contract)
-      sticker_format: 'image', // Required by contract
-      sticker_type: 'image_sticker',
-      type: 'image_sticker',
-      asset_prepared: true,
-      mode: customInstructions ? 'custom' : 'auto', // Required by contract
-    };
+    // First, test message-only call to confirm agent is healthy
+    console.log(`[${timestamp}] [AI Image] Testing agent health with message-only call...`);
+    try {
+      const healthCheckResponse = await client.post(
+        endpoint,
+        { message: 'test' },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      console.log(`[${timestamp}] [AI Image] ✅ Agent health check passed, status: ${healthCheckResponse.status}`);
+    } catch (healthError: any) {
+      const healthHeaders = healthError.response?.headers || {};
+      const healthRequestId = healthHeaders['x-request-id'] || healthHeaders['request-id'] || 'N/A';
+      console.error(`[${timestamp}] [AI Image] ⚠️ Agent health check failed:`, {
+        message: healthError.message,
+        status: healthError.response?.status,
+        requestId: healthRequestId,
+      });
+      // Continue anyway - might be a false negative
+    }
+    
+    // Build FormData for multipart request with image
+    const formData = new FormData();
+    
+    // Add text fields
+    formData.append('message', prompt);
+    formData.append('base_image_ref', 'uploaded_asset');
+    formData.append('sticker_format', 'image');
+    formData.append('sticker_type', 'image_sticker');
+    // Removed 'type' field to avoid collisions
+    formData.append('asset_prepared', 'true');
+    formData.append('mode', customInstructions ? 'custom' : 'auto');
     
     if (customInstructions) {
-      requestBody.user_prompt = customInstructions; // Required for custom mode
+      formData.append('user_prompt', customInstructions);
     } else if (template) {
-      requestBody.template_id = template; // Required for auto mode
+      formData.append('template_id', template);
     }
     
     if (context) {
-      requestBody.user_context = context; // Optional but helpful
+      formData.append('user_context', context);
     }
     
+    // Add image file as stream (multipart)
+    const imageStream = fs.createReadStream(baseImagePath);
+    const imageMimeType = baseImagePath.endsWith('.png') ? 'image/png' : 'image/jpeg';
+    const imageFileName = baseImagePath.split('/').pop() || 'image.png';
+    formData.append('base_image', imageStream, {
+      filename: imageFileName,
+      contentType: imageMimeType,
+    });
+    
+    // Get file size for logging
+    const imageStats = fs.statSync(baseImagePath);
+    const imageSizeBytes = imageStats.size;
+    
     console.log(`[${timestamp}] [AI Image] Calling Memeputer: ${env.MEMEPUTER_API_BASE}${endpoint}`);
-    console.log(`[${timestamp}] [AI Image] Request body keys:`, Object.keys(requestBody));
-    console.log(`[${timestamp}] [AI Image] Mode: ${requestBody.mode}, Template: ${requestBody.template_id || 'N/A'}, Has context: ${!!requestBody.user_context}`);
-    console.log(`[${timestamp}] [AI Image] Prompt length: ${prompt.length}, Image size: ${imageBase64.length} bytes`);
+    console.log(`[${timestamp}] [AI Image] Using multipart/form-data with image file`);
+    console.log(`[${timestamp}] [AI Image] Mode: ${customInstructions ? 'custom' : 'auto'}, Template: ${template || 'N/A'}, Has context: ${!!context}`);
+    console.log(`[${timestamp}] [AI Image] Prompt length: ${prompt.length}, Image size: ${imageSizeBytes} bytes`);
     
     const response = await client.post(
       endpoint,
-      requestBody
+      formData,
+      {
+        headers: {
+          ...formData.getHeaders(), // This sets Content-Type with boundary
+        },
+      }
     );
 
     // Parse response - Agent returns JSON job spec: { type: "image_sticker", engine: "memeputer_i2i", prompt: "...", ... }
@@ -188,15 +225,23 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
     return outputPath;
   } catch (error: any) {
     const errorTimestamp = new Date().toISOString();
+    const responseHeaders = error.response?.headers || {};
+    const requestId = responseHeaders['x-request-id'] || responseHeaders['request-id'] || 'N/A';
+    
     console.error(`[${errorTimestamp}] [AI Image] ❌ Memeputer generation failed:`, {
       message: error.message,
       code: error.code,
-      response: error.response?.data,
       status: error.response?.status,
+      requestId: requestId,
+      responseHeaders: Object.keys(responseHeaders),
+      responseData: error.response?.data,
     });
     
+    // Log full headers for Memeputer support
+    console.error(`[${errorTimestamp}] [AI Image] Response headers:`, JSON.stringify(responseHeaders, null, 2));
+    
     // NO FALLBACK - fail clearly
-    throw new Error(`Memeputer sticker generation failed: ${error.message || 'Unknown error'}`);
+    throw new Error(`Memeputer sticker generation failed: ${error.message || 'Unknown error'} (Request ID: ${requestId})`);
   }
 }
 
@@ -318,12 +363,20 @@ export async function generateStickerPNGs(options: ImageGenerationOptions): Prom
     return generatedPaths;
   } catch (error: any) {
     const errorTimestamp = new Date().toISOString();
+    const responseHeaders = error.response?.headers || {};
+    const requestId = responseHeaders['x-request-id'] || responseHeaders['request-id'] || 'N/A';
+    
     console.error(`[${errorTimestamp}] [AI Image] ❌ Memeputer generation failed:`, {
       message: error.message,
       code: error.code,
-      response: error.response?.data,
       status: error.response?.status,
+      requestId: requestId,
+      responseHeaders: Object.keys(responseHeaders),
+      responseData: error.response?.data,
     });
+    
+    // Log full headers for Memeputer support
+    console.error(`[${errorTimestamp}] [AI Image] Response headers:`, JSON.stringify(responseHeaders, null, 2));
     
     // Fallback to simple processing
     console.log(`[${errorTimestamp}] [AI Image] Using fallback generation`);
