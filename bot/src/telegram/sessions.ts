@@ -35,6 +35,8 @@ export interface Session {
   aiStyle?: AIStyle; // Pack style seed for consistency
   awaitingEmojiPick?: boolean; // Track if waiting for emoji selection
   emojiPickPage?: number; // Current page of emoji picker
+  imageStickerMode?: 'custom' | 'auto'; // Mode for image sticker generation
+  customInstructions?: string; // Custom instructions for single sticker mode
 }
 
 const sessions = new Map<number, Session>();

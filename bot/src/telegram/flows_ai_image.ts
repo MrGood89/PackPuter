@@ -6,7 +6,7 @@ import { env } from '../env';
 import { isValidImageFile } from '../util/validate';
 import { getTempFilePath, cleanupFile } from '../util/file';
 import { FORCE_REPLY } from './menus';
-import { generateStickerPNGs } from '../services/memeputerImageClient';
+import { generateStickerPNGs, generateSingleSticker } from '../services/memeputerImageClient';
 import { postprocessStickerPng } from '../services/stickerPostprocess';
 import { workerClient } from '../services/workerClient';
 import { getTemplate } from '../ai/templates/stickers';
@@ -109,7 +109,173 @@ export async function handleAIImageContext(ctx: Context, text: string) {
     setSession(ctx.from!.id, { projectContext: text });
   }
 
-  await ctx.reply('Choose a template. Reply with one of: GM, GN, LFG, HIGHER, HODL, WAGMI, NGMI, SER, REKT, ALPHA', FORCE_REPLY);
+  // Ask user to choose mode: custom (single) or auto-generated (batch)
+  const { Markup } = require('telegraf');
+  await ctx.reply(
+    'Choose sticker mode:\n\n' +
+    '• **Custom sticker** - You provide instructions, I generate one sticker\n' +
+    '• **Auto-generated set** - I generate common crypto stickers (GM, GN, LFG, etc.)',
+    Markup.inlineKeyboard([
+      [Markup.button.callback('🎨 Custom Sticker (Single)', 'img_mode:custom')],
+      [Markup.button.callback('📦 Auto-Generated Set', 'img_mode:auto')],
+    ])
+  );
+}
+
+/**
+ * Handle custom sticker instructions (Mode A: Custom sticker)
+ */
+export async function handleCustomStickerInstructions(ctx: Context, instructions: string) {
+  const session = getSession(ctx.from!.id);
+  if (session.mode !== 'ai_image' || session.uploadedFiles.length === 0) return;
+
+  setSession(ctx.from!.id, { customInstructions: instructions });
+
+  await ctx.reply('🎨 Generating custom sticker with AI...');
+
+  setImmediate(async () => {
+    try {
+      const baseImage = session.uploadedFiles[0];
+      if (!baseImage.filePath || !fs.existsSync(baseImage.filePath)) {
+        await ctx.reply('❌ Base image not found.');
+        return;
+      }
+
+      // Generate single sticker using Memeputer
+      const generatedPath = await generateSingleSticker({
+        baseImagePath: baseImage.filePath,
+        context: session.projectContext || undefined,
+        customInstructions: instructions,
+      });
+
+      if (!generatedPath) {
+        await ctx.reply('❌ Failed to generate sticker. Memeputer did not return a valid image.');
+        return;
+      }
+
+      // Verify file exists
+      if (!fs.existsSync(generatedPath)) {
+        await ctx.reply('❌ Generated sticker file not found.');
+        return;
+      }
+
+      // Send preview
+      try {
+        await ctx.replyWithPhoto(
+          { source: generatedPath },
+          {
+            caption: '✅ Custom sticker generated!\n\nReply with:\n• "new" to create a new pack\n• "existing <pack_name>" to add to existing pack'
+          }
+        );
+      } catch (error: any) {
+        console.error('Failed to send preview:', error);
+        await ctx.reply('✅ Custom sticker generated! Reply with:\n• "new" to create a new pack\n• "existing <pack_name>" to add to existing pack');
+      }
+
+      // Store for pack creation
+      setSession(ctx.from!.id, {
+        uploadedFiles: [{
+          fileId: '',
+          filePath: generatedPath,
+        }],
+        stickerFormat: 'static',
+      });
+
+      // Cleanup asset
+      if (fs.existsSync(baseImage.filePath)) {
+        cleanupFile(baseImage.filePath);
+      }
+    } catch (error: any) {
+      console.error('Custom sticker generation error:', error);
+      await ctx.reply('❌ Failed to generate sticker. ' + (error.message || 'Unknown error'));
+    }
+  });
+}
+
+/**
+ * Generate auto-generated sticker set (Mode B: Auto-generated set)
+ * Generates one-by-one for common crypto templates
+ */
+export async function generateAutoStickerSet(ctx: Context) {
+  const session = getSession(ctx.from!.id);
+  if (session.mode !== 'ai_image' || session.uploadedFiles.length === 0) return;
+
+  const templates = ['GM', 'GN', 'LFG', 'HIGHER', 'HODL', 'WAGMI', 'NGMI', 'SER', 'REKT', 'ALPHA'];
+  const generatedStickers: Array<{ fileId: string; filePath: string }> = [];
+
+  try {
+    const baseImage = session.uploadedFiles[0];
+    if (!baseImage.filePath || !fs.existsSync(baseImage.filePath)) {
+      await ctx.reply('❌ Base image not found.');
+      return;
+    }
+
+    // Generate one sticker per template, one-by-one
+    for (let i = 0; i < templates.length; i++) {
+      const template = templates[i];
+      
+      await ctx.reply(`Generating ${i + 1}/${templates.length} (${template})...`);
+
+      try {
+        const generatedPath = await generateSingleSticker({
+          baseImagePath: baseImage.filePath,
+          context: session.projectContext || undefined,
+          template: template,
+        });
+
+        if (generatedPath && fs.existsSync(generatedPath)) {
+          generatedStickers.push({
+            fileId: '',
+            filePath: generatedPath,
+          });
+        } else {
+          console.error(`Failed to generate sticker for ${template}`);
+          await ctx.reply(`⚠️ Failed to generate ${template}, continuing...`);
+        }
+      } catch (error: any) {
+        console.error(`Error generating ${template}:`, error);
+        await ctx.reply(`⚠️ Error generating ${template}: ${error.message || 'Unknown error'}. Continuing...`);
+      }
+    }
+
+    if (generatedStickers.length === 0) {
+      await ctx.reply('❌ Failed to generate any stickers. Please try again.');
+      return;
+    }
+
+    // Ask which pack to add to
+    await ctx.reply(`✅ ${generatedStickers.length} sticker(s) generated! Reply with:\n` +
+      '• "new" to create a new pack\n' +
+      '• "existing <pack_name>" to add to existing pack');
+
+    // Store all generated stickers
+    setSession(ctx.from!.id, {
+      uploadedFiles: generatedStickers,
+      stickerFormat: 'static',
+    });
+
+    // Send preview of first sticker
+    if (generatedStickers.length > 0) {
+      try {
+        await ctx.replyWithPhoto(
+          { source: generatedStickers[0].filePath },
+          {
+            caption: `✅ ${generatedStickers.length} sticker(s) generated!\n\nReply with:\n• "new" to create a new pack\n• "existing <pack_name>" to add to existing pack`
+          }
+        );
+      } catch (error: any) {
+        console.error('Failed to send preview:', error);
+      }
+    }
+
+    // Cleanup asset
+    if (fs.existsSync(baseImage.filePath)) {
+      cleanupFile(baseImage.filePath);
+    }
+  } catch (error: any) {
+    console.error('Auto sticker set generation error:', error);
+    await ctx.reply('❌ Failed to generate stickers. ' + (error.message || 'Unknown error'));
+  }
 }
 
 export async function handleAIImageTemplate(ctx: Context, templateInput: string) {

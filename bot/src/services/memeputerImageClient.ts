@@ -8,13 +8,152 @@ import { stickerCache } from './cache';
 export interface ImageGenerationOptions {
   baseImagePath: string;
   context?: string;
-  template: string;
-  count: number;
+  template?: string;
+  count?: number;
+  customInstructions?: string;
+}
+
+export interface SingleStickerOptions {
+  baseImagePath: string;
+  context?: string;
+  template?: string;
+  customInstructions?: string;
+}
+
+/**
+ * Generate a single sticker PNG using Memeputer API
+ * Returns the file path or null if generation fails
+ * NO FALLBACK - fails clearly if Memeputer fails
+ */
+export async function generateSingleSticker(options: SingleStickerOptions): Promise<string | null> {
+  const { baseImagePath, context, template, customInstructions } = options;
+  const timestamp = new Date().toISOString();
+  
+  console.log(`[${timestamp}] [AI Image] Generating single sticker via Memeputer:`, {
+    template,
+    hasContext: !!context,
+    hasCustomInstructions: !!customInstructions,
+    baseImage: baseImagePath,
+  });
+
+  // Check if Memeputer is configured
+  if (!env.MEMEPUTER_API_KEY || !env.MEMEPUTER_AGENT_ID) {
+    throw new Error('Memeputer not configured. Cannot generate stickers without Memeputer.');
+  }
+
+  try {
+    const client = axios.create({
+      baseURL: env.MEMEPUTER_API_BASE,
+      headers: {
+        'x-api-key': env.MEMEPUTER_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      timeout: 120000, // 2 minutes
+    });
+
+    // Read base image as base64
+    const imageBuffer = fs.readFileSync(baseImagePath);
+    const imageBase64 = imageBuffer.toString('base64');
+    const imageMimeType = baseImagePath.endsWith('.png') ? 'image/png' : 'image/jpeg';
+
+    // Build prompt
+    let prompt: string;
+    if (customInstructions) {
+      prompt = `Generate a Telegram sticker image based on these custom instructions: ${customInstructions}. ` +
+        `Use the same character from the base image. ` +
+        `Requirements: transparent background (no scenery, no background), clean sticker cutout style, 512x512 pixels, PNG with alpha channel.`;
+    } else if (template) {
+      const templateText = getTemplateText(template);
+      prompt = buildStickerPrompt(template, context, 0, 1);
+    } else {
+      throw new Error('Either template or customInstructions must be provided');
+    }
+
+    // Call Memeputer API
+    const endpoint = `/v1/agents/${env.MEMEPUTER_AGENT_ID}/chat`;
+    
+    console.log(`[${timestamp}] [AI Image] Calling Memeputer: ${env.MEMEPUTER_API_BASE}${endpoint}`);
+    
+    const response = await client.post(
+      endpoint,
+      {
+        message: prompt,
+        base_image: `data:${imageMimeType};base64,${imageBase64}`,
+        sticker_type: 'image_sticker',
+      }
+    );
+
+    // Parse response - Memeputer should return { type: "image_sticker", image_url: "..." } or { needs: [...] }
+    // Handle nested response format (response.data.data.response) or direct format (response.data)
+    let responseData = response.data;
+    if (responseData?.data?.response) {
+      // Try to parse JSON if it's a string
+      if (typeof responseData.data.response === 'string') {
+        try {
+          responseData = JSON.parse(responseData.data.response);
+        } catch (e) {
+          // If not JSON, check if it contains image URL directly
+          responseData = responseData.data;
+        }
+      } else {
+        responseData = responseData.data.response;
+      }
+    } else if (responseData?.data) {
+      responseData = responseData.data;
+    }
+    
+    console.log(`[${timestamp}] [AI Image] Memeputer response:`, {
+      hasData: !!responseData,
+      type: responseData?.type,
+      hasNeeds: !!responseData?.needs,
+      hasImageUrl: !!(responseData?.image_url || responseData?.image),
+    });
+    
+    if (responseData?.needs) {
+      throw new Error(`Memeputer needs additional information: ${JSON.stringify(responseData.needs)}`);
+    }
+
+    if (responseData?.type !== 'image_sticker') {
+      console.error(`[${timestamp}] [AI Image] ❌ Unexpected response type:`, responseData);
+      throw new Error(`Memeputer returned unexpected response type: ${responseData?.type || 'unknown'}. Expected 'image_sticker'.`);
+    }
+
+    const imageUrl = responseData.image_url || responseData.image;
+    if (!imageUrl) {
+      console.error(`[${timestamp}] [AI Image] ❌ No image URL in response:`, responseData);
+      throw new Error('Memeputer did not return an image URL. Response: ' + JSON.stringify(responseData).substring(0, 500));
+    }
+
+    // Download the generated image
+    const imageResponse = await axios.get(imageUrl, {
+      responseType: 'arraybuffer',
+      timeout: 30000,
+    });
+
+    // Save to temp file
+    const outputPath = getTempFilePath(`ai_sticker_${Date.now()}`, 'png');
+    fs.writeFileSync(outputPath, Buffer.from(imageResponse.data));
+
+    console.log(`[${timestamp}] [AI Image] ✅ Generated sticker: ${outputPath}`);
+    return outputPath;
+  } catch (error: any) {
+    const errorTimestamp = new Date().toISOString();
+    console.error(`[${errorTimestamp}] [AI Image] ❌ Memeputer generation failed:`, {
+      message: error.message,
+      code: error.code,
+      response: error.response?.data,
+      status: error.response?.status,
+    });
+    
+    // NO FALLBACK - fail clearly
+    throw new Error(`Memeputer sticker generation failed: ${error.message || 'Unknown error'}`);
+  }
 }
 
 /**
  * Generate sticker PNGs using Memeputer API
  * Calls Memeputer agent to generate images via webhook
+ * @deprecated Use generateSingleSticker for new code
  */
 export async function generateStickerPNGs(options: ImageGenerationOptions): Promise<string[]> {
   const { baseImagePath, context, template, count } = options;
@@ -182,6 +321,7 @@ function getTemplateText(template: string): string {
 /**
  * Fallback: Simple image processing when AI is unavailable
  * Just resizes and prepares the base image
+ * @deprecated No fallback - Memeputer must succeed
  */
 async function generateFallbackStickers(
   baseImagePath: string,

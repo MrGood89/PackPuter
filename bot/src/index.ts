@@ -117,6 +117,47 @@ bot.action(/^emoji_page:(\d+)$/, async (ctx) => {
   );
 });
 
+// Image sticker mode selection
+bot.action(/^img_mode:(.+)$/, async (ctx) => {
+  const mode = ctx.match[1] as 'custom' | 'auto';
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] [Image Sticker Mode] User ${ctx.from!.id} selected mode: ${mode}`);
+  
+  const session = getSession(ctx.from!.id);
+  if (session.mode !== 'ai_image') return;
+  
+  await ctx.answerCbQuery();
+  
+  try {
+    await ctx.editMessageReplyMarkup(undefined);
+  } catch (error) {
+    // Ignore
+  }
+  
+  setSession(ctx.from!.id, { imageStickerMode: mode });
+  
+  if (mode === 'custom') {
+    await ctx.reply(
+      '🎨 **Custom Sticker Mode**\n\n' +
+      'Describe what you want the sticker to show. For example:\n' +
+      '• "Character holding a sign saying HODL"\n' +
+      '• "Character celebrating with confetti"\n' +
+      '• "Character looking disappointed"\n\n' +
+      'I\'ll generate one sticker based on your description.',
+      FORCE_REPLY
+    );
+  } else {
+    // Auto-generated mode: generate common crypto stickers
+    await ctx.reply('📦 **Auto-Generated Set Mode**\n\nGenerating common crypto stickers (GM, GN, LFG, HIGHER, HODL, WAGMI, NGMI, SER, REKT, ALPHA)...');
+    
+    // Start generation immediately
+    setImmediate(async () => {
+      const { generateAutoStickerSet } = await import('./telegram/flows_ai_image');
+      await generateAutoStickerSet(ctx);
+    });
+  }
+});
+
 // Emoji selection
 bot.action(/^emoji_pick:(.+)$/, async (ctx) => {
   const emoji = ctx.match[1]; // Don't decode - emoji should be passed as-is
@@ -250,13 +291,20 @@ bot.on('text', async (ctx) => {
   }
 
   // AI Image Sticker Maker - project context handling
-  if (session.mode === 'ai_image' && session.uploadedFiles.length > 0 && !session.projectContext && !session.chosenTemplate) {
+  if (session.mode === 'ai_image' && session.uploadedFiles.length > 0 && session.projectContext === undefined) {
     await handleAIImageContext(ctx, text);
     return;
   }
 
-  // AI Image Sticker Maker - template handling
-  if (session.mode === 'ai_image' && session.projectContext !== undefined && !session.chosenTemplate) {
+  // AI Image Sticker Maker - custom instructions handling
+  if (session.mode === 'ai_image' && session.imageStickerMode === 'custom' && !session.customInstructions) {
+    const { handleCustomStickerInstructions } = await import('./telegram/flows_ai_image');
+    await handleCustomStickerInstructions(ctx, text);
+    return;
+  }
+
+  // AI Image Sticker Maker - template handling (legacy)
+  if (session.mode === 'ai_image' && session.projectContext !== undefined && !session.chosenTemplate && !session.imageStickerMode) {
     await handleAIImageTemplate(ctx, text);
     return;
   }
