@@ -72,15 +72,20 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
     // Call Memeputer API
     const endpoint = `/v1/agents/${env.MEMEPUTER_AGENT_ID}/chat`;
     
+    const requestBody = {
+      message: prompt,
+      base_image: `data:${imageMimeType};base64,${imageBase64}`,
+      sticker_type: 'image_sticker',
+      type: 'image_sticker', // Also include 'type' field
+    };
+    
     console.log(`[${timestamp}] [AI Image] Calling Memeputer: ${env.MEMEPUTER_API_BASE}${endpoint}`);
+    console.log(`[${timestamp}] [AI Image] Request body keys:`, Object.keys(requestBody));
+    console.log(`[${timestamp}] [AI Image] Prompt length: ${prompt.length}, Image size: ${imageBase64.length} bytes`);
     
     const response = await client.post(
       endpoint,
-      {
-        message: prompt,
-        base_image: `data:${imageMimeType};base64,${imageBase64}`,
-        sticker_type: 'image_sticker',
-      }
+      requestBody
     );
 
     // Parse response - Memeputer should return { type: "image_sticker", image_url: "..." } or { needs: [...] }
