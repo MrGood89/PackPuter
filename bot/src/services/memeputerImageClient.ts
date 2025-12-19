@@ -101,26 +101,29 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
     }
     
     // Read image as base64 for JSON request
-    // The API may not support multipart/form-data, so we'll try base64 in JSON first
+    // Try sending as plain base64 string (without data URI prefix) - API might not support data URIs
     const imageBuffer = fs.readFileSync(baseImagePath);
     const imageBase64 = imageBuffer.toString('base64');
     const imageMimeType = baseImagePath.endsWith('.png') ? 'image/png' : 'image/jpeg';
-    const imageDataUri = `data:${imageMimeType};base64,${imageBase64}`;
     
     // Get file size for logging
     const imageStats = fs.statSync(baseImagePath);
     const imageSizeBytes = imageStats.size;
     
     // Build JSON request body
+    // Try sending base64 as plain string (not data URI) - some APIs prefer this format
     const requestBody: any = {
       message: prompt,
-      base_image: imageDataUri, // Send as data URI
+      base_image: imageBase64, // Send as plain base64 string (no data URI prefix)
       base_image_ref: 'uploaded_asset',
       sticker_format: 'image',
       sticker_type: 'image_sticker',
       asset_prepared: true,
       mode: customInstructions ? 'custom' : 'auto',
     };
+    
+    // Optionally add mime type if API expects it
+    // requestBody.base_image_mime = imageMimeType;
     
     if (customInstructions) {
       requestBody.user_prompt = customInstructions;
@@ -133,10 +136,11 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
     }
     
     console.log(`[${timestamp}] [AI Image] Calling Memeputer: ${env.MEMEPUTER_API_BASE}${endpoint}`);
-    console.log(`[${timestamp}] [AI Image] Using JSON with base64 image (data URI)`);
+    console.log(`[${timestamp}] [AI Image] Using JSON with base64 image (plain string, no data URI prefix)`);
     console.log(`[${timestamp}] [AI Image] Mode: ${customInstructions ? 'custom' : 'auto'}, Template: ${template || 'N/A'}, Has context: ${!!context}`);
     console.log(`[${timestamp}] [AI Image] Prompt length: ${prompt.length}, Image size: ${imageSizeBytes} bytes, Base64 length: ${imageBase64.length}`);
     console.log(`[${timestamp}] [AI Image] Request body keys:`, Object.keys(requestBody));
+    console.log(`[${timestamp}] [AI Image] Base64 preview (first 100 chars): ${imageBase64.substring(0, 100)}...`);
     
     const response = await client.post(
       endpoint,
