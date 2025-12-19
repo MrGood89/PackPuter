@@ -21,38 +21,40 @@ export function setupAIImageFlow(bot: Telegraf) {
   const setupTimestamp = new Date().toISOString();
   console.log(`[${setupTimestamp}] [AI Image Flow] Registering photo and document handlers`);
   
-  // Handle image uploads for AI Image flow
-  bot.on('photo', async (ctx: Context) => {
-    const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] [AI Image Flow] Photo event received for user ${ctx.from?.id}`);
+  // Use middleware approach to catch ALL messages with photos/documents
+  // This ensures we check before other handlers consume the update
+  bot.use(async (ctx: Context, next: () => Promise<void>) => {
     const session = getSession(ctx.from!.id);
-    console.log(`[${timestamp}] [AI Image Flow] Session mode: ${session.mode}`);
-    if (session.mode === 'ai_image') {
+    
+    // Only process if in ai_image mode
+    if (session.mode !== 'ai_image') {
+      return next(); // Let other handlers process
+    }
+    
+    // Check for photo
+    if (ctx.message && 'photo' in ctx.message && ctx.message.photo) {
+      const timestamp = new Date().toISOString();
+      console.log(`[${timestamp}] [AI Image Flow Middleware] Photo detected for user ${ctx.from?.id}`);
       await handleImageUpload(ctx);
-    } else {
-      console.log(`[${timestamp}] [AI Image Flow] Skipping - wrong mode (expected 'ai_image', got '${session.mode}')`);
+      return; // Don't call next() - we handled it
     }
-  });
-
-  bot.on('document', async (ctx: Context) => {
-    const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] [AI Image Flow] Document event received for user ${ctx.from?.id}`);
-    const session = getSession(ctx.from!.id);
-    console.log(`[${timestamp}] [AI Image Flow] Session mode: ${session.mode}`);
-    if (session.mode === 'ai_image' && ctx.message && 'document' in ctx.message && ctx.message.document?.mime_type) {
+    
+    // Check for document (image)
+    if (ctx.message && 'document' in ctx.message && ctx.message.document?.mime_type) {
       const mimeType = ctx.message.document.mime_type;
-      console.log(`[${timestamp}] [AI Image Flow] Document mimeType: ${mimeType}`);
       if (isValidImageFile(mimeType)) {
+        const timestamp = new Date().toISOString();
+        console.log(`[${timestamp}] [AI Image Flow Middleware] Image document detected for user ${ctx.from?.id}, mimeType: ${mimeType}`);
         await handleImageUpload(ctx);
-      } else {
-        console.log(`[${timestamp}] [AI Image Flow] Invalid image file type: ${mimeType}`);
+        return; // Don't call next() - we handled it
       }
-    } else {
-      console.log(`[${timestamp}] [AI Image Flow] Skipping - wrong mode or no document`);
     }
+    
+    // Not a photo/document or not an image - let other handlers process
+    return next();
   });
   
-  console.log(`[${setupTimestamp}] [AI Image Flow] Handlers registered successfully`);
+  console.log(`[${setupTimestamp}] [AI Image Flow] Middleware registered successfully`);
 }
 
 async function handleImageUpload(ctx: Context) {
