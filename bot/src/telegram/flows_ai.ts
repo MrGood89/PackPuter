@@ -23,13 +23,23 @@ export function setupAIFlows(bot: any) {
   // Commands are now handled by router.ts
   // This function only sets up file upload handlers
 
-  // Handle image uploads for AI flows
+  // Handle image uploads for AI flows (video stickers only)
   bot.on('photo', async (ctx: Context) => {
-    await handleImageUpload(ctx);
+    const session = getSession(ctx.from!.id);
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [AI Video Flow] Photo event, mode: ${session.mode}`);
+    // Only handle if mode is 'ai' (video stickers), not 'ai_image'
+    if (session.mode === 'ai') {
+      await handleImageUpload(ctx);
+    }
   });
 
   bot.on('document', async (ctx: Context) => {
-    if (ctx.message && 'document' in ctx.message && ctx.message.document?.mime_type) {
+    const session = getSession(ctx.from!.id);
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [AI Video Flow] Document event, mode: ${session.mode}`);
+    // Only handle if mode is 'ai' (video stickers), not 'ai_image'
+    if (session.mode === 'ai' && ctx.message && 'document' in ctx.message && ctx.message.document?.mime_type) {
       const mimeType = ctx.message.document.mime_type;
       if (isValidImageFile(mimeType)) {
         await handleImageUpload(ctx);

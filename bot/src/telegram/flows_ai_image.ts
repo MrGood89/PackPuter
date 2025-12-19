@@ -20,14 +20,21 @@ import {
 export function setupAIImageFlow(bot: Telegraf) {
   // Handle image uploads for AI Image flow
   bot.on('photo', async (ctx: Context) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [AI Image Flow] Photo event received for user ${ctx.from?.id}`);
     await handleImageUpload(ctx);
   });
 
   bot.on('document', async (ctx: Context) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [AI Image Flow] Document event received for user ${ctx.from?.id}`);
     if (ctx.message && 'document' in ctx.message && ctx.message.document?.mime_type) {
       const mimeType = ctx.message.document.mime_type;
+      console.log(`[${timestamp}] [AI Image Flow] Document mimeType: ${mimeType}`);
       if (isValidImageFile(mimeType)) {
         await handleImageUpload(ctx);
+      } else {
+        console.log(`[${timestamp}] [AI Image Flow] Document is not a valid image file`);
       }
     }
   });
@@ -35,7 +42,13 @@ export function setupAIImageFlow(bot: Telegraf) {
 
 async function handleImageUpload(ctx: Context) {
   const session = getSession(ctx.from!.id);
-  if (session.mode !== 'ai_image') return;
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] [AI Image Upload] Handler called, mode: ${session.mode}, userId: ${ctx.from?.id}`);
+  
+  if (session.mode !== 'ai_image') {
+    console.log(`[${timestamp}] [AI Image Upload] Wrong mode, returning early. Expected 'ai_image', got '${session.mode}'`);
+    return;
+  }
 
   let fileId: string | undefined;
   let mimeType: string | undefined;
@@ -44,12 +57,18 @@ async function handleImageUpload(ctx: Context) {
     const photos = ctx.message.photo;
     fileId = photos[photos.length - 1].file_id;
     mimeType = 'image/jpeg';
+    console.log(`[${timestamp}] [AI Image Upload] Photo detected, fileId: ${fileId}`);
   } else if (ctx.message && 'document' in ctx.message && ctx.message.document) {
     fileId = ctx.message.document.file_id;
     mimeType = ctx.message.document.mime_type;
+    console.log(`[${timestamp}] [AI Image Upload] Document detected, fileId: ${fileId}, mimeType: ${mimeType}`);
+  } else {
+    console.log(`[${timestamp}] [AI Image Upload] No photo or document found in message`);
+    return;
   }
 
   if (!fileId || !mimeType || !isValidImageFile(mimeType)) {
+    console.log(`[${timestamp}] [AI Image Upload] Invalid file: fileId=${fileId}, mimeType=${mimeType}`);
     await ctx.reply('Please send a valid image file (PNG or JPG).');
     return;
   }

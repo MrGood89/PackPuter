@@ -68,6 +68,8 @@ export async function runCommand(ctx: Context, key: CommandKey): Promise<void> {
       case 'ai_image': {
         resetSession(ctx.from!.id);
         setSession(ctx.from!.id, { mode: 'ai_image', stickerFormat: 'static' });
+        const timestamp = new Date().toISOString();
+        console.log(`[${timestamp}] [Router] Set mode to 'ai_image' for user ${ctx.from!.id}`);
         await ctx.reply(
           'Send a base image (PNG preferred, JPG also accepted).'
         );
