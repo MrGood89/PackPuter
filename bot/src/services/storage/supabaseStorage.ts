@@ -10,7 +10,9 @@ let supabaseClient: SupabaseClient | null = null;
 function getSupabaseClient(): SupabaseClient {
   if (!supabaseClient) {
     if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
-      throw new Error('Supabase credentials not configured. SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.');
+      const errorMsg = 'Supabase credentials not configured. SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.';
+      console.error(`[Supabase Storage] ${errorMsg}`);
+      throw new Error(errorMsg);
     }
     supabaseClient = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
   }

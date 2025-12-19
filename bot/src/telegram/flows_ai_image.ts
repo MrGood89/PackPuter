@@ -137,17 +137,25 @@ async function handleImageUpload(ctx: Context) {
         
         // Upload prepared asset to Supabase Storage and get signed URL
         await ctx.reply('📤 Uploading asset to storage...');
-        const sessionId = `session_${Date.now()}`;
-        const assetKey = generateAssetKey(ctx.from!.id, sessionId);
-        const assetUrl = await uploadAndGetSignedUrl(assetPath, assetKey);
-        
-        // Update session with prepared asset (keep path for debugging, URL for Memeputer)
-        setSession(ctx.from!.id, {
-          uploadedFiles: [{ fileId: fileId!, filePath: assetPath }],
-          baseImagePath: assetPath,
-          baseImageUrl: assetUrl,
-          assetKey: assetKey,
-        });
+        try {
+          const sessionId = `session_${Date.now()}`;
+          const assetKey = generateAssetKey(ctx.from!.id, sessionId);
+          const assetUrl = await uploadAndGetSignedUrl(assetPath, assetKey);
+          
+          console.log(`[${new Date().toISOString()}] [AI Image Upload] ✅ Asset uploaded to Supabase, URL: ${assetUrl.substring(0, 100)}...`);
+          
+          // Update session with prepared asset (keep path for debugging, URL for Memeputer)
+          setSession(ctx.from!.id, {
+            uploadedFiles: [{ fileId: fileId!, filePath: assetPath }],
+            baseImagePath: assetPath,
+            baseImageUrl: assetUrl,
+            assetKey: assetKey,
+          });
+        } catch (uploadError: any) {
+          console.error(`[${new Date().toISOString()}] [AI Image Upload] ❌ Upload failed:`, uploadError);
+          await ctx.reply(`❌ Failed to upload asset to storage: ${uploadError.message}. Please check Supabase configuration.`);
+          throw uploadError; // Re-throw to trigger fallback
+        }
         
         // Cleanup original file
         cleanupFile(filePath);
