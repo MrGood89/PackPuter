@@ -14,7 +14,7 @@ export interface ImageGenerationOptions {
 }
 
 export interface SingleStickerOptions {
-  baseImagePath: string;
+  baseImageUrl: string; // Public HTTPS URL to the prepared asset
   context?: string;
   template?: string;
   customInstructions?: string;
@@ -26,15 +26,80 @@ export interface SingleStickerOptions {
  * NO FALLBACK - fails clearly if Memeputer fails
  */
 export async function generateSingleSticker(options: SingleStickerOptions): Promise<string | null> {
-  const { baseImagePath, context, template, customInstructions } = options;
+  const { baseImageUrl, context, template, customInstructions } = options;
   const timestamp = new Date().toISOString();
   
   console.log(`[${timestamp}] [AI Image] Generating single sticker via Memeputer:`, {
     template,
     hasContext: !!context,
     hasCustomInstructions: !!customInstructions,
-    baseImage: baseImagePath,
+    baseImageUrl: maskUrlForLogging(baseImageUrl),
   });
+  
+  // Validate URL format
+  let imageUrl: URL;
+  try {
+    imageUrl = new URL(baseImageUrl);
+    if (imageUrl.protocol !== 'https:') {
+      throw new Error('Base image URL must use HTTPS');
+    }
+  } catch (error: any) {
+    throw new Error(`Invalid base image URL: ${error.message}`);
+  }
+  
+  // Preflight check: Verify URL is accessible
+  console.log(`[${timestamp}] [AI Image] Preflight check: Verifying image URL is accessible...`);
+  try {
+    const preflightResponse = await axios.head(baseImageUrl, {
+      timeout: 10000,
+      validateStatus: (status) => status < 500, // Accept redirects, but not server errors
+    });
+    
+    // If HEAD not allowed, try GET with Range header
+    if (preflightResponse.status === 405 || preflightResponse.status === 501) {
+      console.log(`[${timestamp}] [AI Image] HEAD not allowed, trying GET with Range header...`);
+      const rangeResponse = await axios.get(baseImageUrl, {
+        headers: { Range: 'bytes=0-1024' },
+        timeout: 10000,
+        validateStatus: (status) => status < 500,
+      });
+      
+      if (rangeResponse.status !== 200 && rangeResponse.status !== 206) {
+        throw new Error(`Preflight GET failed with status ${rangeResponse.status}`);
+      }
+      
+      const contentType = rangeResponse.headers['content-type'] || '';
+      if (!contentType.startsWith('image/')) {
+        throw new Error(`Invalid content type: ${contentType}, expected image/*`);
+      }
+      
+      console.log(`[${timestamp}] [AI Image] ✅ Preflight check passed (GET): status ${rangeResponse.status}, content-type: ${contentType}`);
+    } else if (preflightResponse.status === 200) {
+      const contentType = preflightResponse.headers['content-type'] || '';
+      if (!contentType.startsWith('image/')) {
+        throw new Error(`Invalid content type: ${contentType}, expected image/*`);
+      }
+      
+      const contentLength = preflightResponse.headers['content-length'];
+      console.log(`[${timestamp}] [AI Image] ✅ Preflight check passed (HEAD): status 200, content-type: ${contentType}${contentLength ? `, size: ${contentLength} bytes` : ''}`);
+    } else {
+      throw new Error(`Preflight HEAD failed with status ${preflightResponse.status}`);
+    }
+  } catch (preflightError: any) {
+    console.error(`[${timestamp}] [AI Image] ❌ Preflight check failed:`, preflightError.message);
+    throw new Error(`Hosted image URL not accessible by Memeputer: ${preflightError.message}. URL: ${maskUrlForLogging(baseImageUrl)}`);
+  }
+  
+  // Helper function to mask URL for logging
+  function maskUrlForLogging(url: string): string {
+    try {
+      const urlObj = new URL(url);
+      const maskedSearch = urlObj.search.replace(/token=[^&]*/gi, 'token=***').replace(/signature=[^&]*/gi, 'signature=***');
+      return `${urlObj.origin}${urlObj.pathname}${maskedSearch}`;
+    } catch {
+      return url.substring(0, 50) + '...';
+    }
+  }
 
   // Check if Memeputer is configured
   if (!env.MEMEPUTER_API_KEY || !env.MEMEPUTER_AGENT_ID) {
@@ -100,30 +165,16 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
       // Continue anyway - might be a false negative
     }
     
-    // Read image as base64 for JSON request
-    // Try sending as plain base64 string (without data URI prefix) - API might not support data URIs
-    const imageBuffer = fs.readFileSync(baseImagePath);
-    const imageBase64 = imageBuffer.toString('base64');
-    const imageMimeType = baseImagePath.endsWith('.png') ? 'image/png' : 'image/jpeg';
-    
-    // Get file size for logging
-    const imageStats = fs.statSync(baseImagePath);
-    const imageSizeBytes = imageStats.size;
-    
-    // Build JSON request body
-    // Try sending base64 as plain string (not data URI) - some APIs prefer this format
+    // Build JSON request body with URL reference (no base64)
     const requestBody: any = {
       message: prompt,
-      base_image: imageBase64, // Send as plain base64 string (no data URI prefix)
-      base_image_ref: 'uploaded_asset',
+      base_image_url: baseImageUrl, // Send public HTTPS URL
+      base_image_ref: baseImageUrl, // Also send as ref for compatibility
       sticker_format: 'image',
       sticker_type: 'image_sticker',
       asset_prepared: true,
       mode: customInstructions ? 'custom' : 'auto',
     };
-    
-    // Optionally add mime type if API expects it
-    // requestBody.base_image_mime = imageMimeType;
     
     if (customInstructions) {
       requestBody.user_prompt = customInstructions;
@@ -135,12 +186,23 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
       requestBody.user_context = context;
     }
     
+    // Calculate approximate JSON payload size
+    const jsonPayload = JSON.stringify(requestBody);
+    const payloadSizeKB = Math.round(jsonPayload.length / 1024);
+    
+    const urlDomain = imageUrl.hostname;
+    const urlPath = imageUrl.pathname;
+    
     console.log(`[${timestamp}] [AI Image] Calling Memeputer: ${env.MEMEPUTER_API_BASE}${endpoint}`);
-    console.log(`[${timestamp}] [AI Image] Using JSON with base64 image (plain string, no data URI prefix)`);
+    console.log(`[${timestamp}] [AI Image] Using JSON with base_image_url (no base64 payload)`);
     console.log(`[${timestamp}] [AI Image] Mode: ${customInstructions ? 'custom' : 'auto'}, Template: ${template || 'N/A'}, Has context: ${!!context}`);
-    console.log(`[${timestamp}] [AI Image] Prompt length: ${prompt.length}, Image size: ${imageSizeBytes} bytes, Base64 length: ${imageBase64.length}`);
+    console.log(`[${timestamp}] [AI Image] Prompt length: ${prompt.length}`);
+    console.log(`[${timestamp}] [AI Image] Image URL domain: ${urlDomain}`);
+    console.log(`[${timestamp}] [AI Image] Image URL path: ${urlPath}`);
+    console.log(`[${timestamp}] [AI Image] Image URL length: ${baseImageUrl.length} chars`);
+    console.log(`[${timestamp}] [AI Image] Image URL (masked): ${maskUrlForLogging(baseImageUrl)}`);
+    console.log(`[${timestamp}] [AI Image] Estimated JSON payload size: ~${payloadSizeKB} KB`);
     console.log(`[${timestamp}] [AI Image] Request body keys:`, Object.keys(requestBody));
-    console.log(`[${timestamp}] [AI Image] Base64 preview (first 100 chars): ${imageBase64.substring(0, 100)}...`);
     
     const response = await client.post(
       endpoint,
@@ -244,8 +306,22 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
     // Log full headers for Memeputer support
     console.error(`[${errorTimestamp}] [AI Image] Response headers:`, JSON.stringify(responseHeaders, null, 2));
     
+    // Provide helpful error message based on status code
+    const status = error.response?.status;
+    let errorMessage = `Memeputer sticker generation failed: ${error.message || 'Unknown error'}`;
+    
+    if (status === 400) {
+      errorMessage += ' (Bad Request - The API may not accept base64 images in JSON format. Please check Memeputer documentation for correct image upload format.)';
+    } else if (status === 500) {
+      errorMessage += ' (Internal Server Error - This appears to be a Memeputer API issue. The server may not support large base64 payloads or may require a different image format. Please contact Memeputer support with the Request ID below.)';
+    }
+    
+    if (requestId !== 'N/A') {
+      errorMessage += ` Request ID: ${requestId}`;
+    }
+    
     // NO FALLBACK - fail clearly
-    throw new Error(`Memeputer sticker generation failed: ${error.message || 'Unknown error'} (Request ID: ${requestId})`);
+    throw new Error(errorMessage);
   }
 }
 

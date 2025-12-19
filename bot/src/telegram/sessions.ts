@@ -37,6 +37,9 @@ export interface Session {
   emojiPickPage?: number; // Current page of emoji picker
   imageStickerMode?: 'custom' | 'auto'; // Mode for image sticker generation
   customInstructions?: string; // Custom instructions for single sticker mode
+  baseImagePath?: string; // Local path to prepared asset (for debugging)
+  baseImageUrl?: string; // Public HTTPS URL to prepared asset (for Memeputer)
+  assetKey?: string; // Storage key for the uploaded asset
 }
 
 const sessions = new Map<number, Session>();

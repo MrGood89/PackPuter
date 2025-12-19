@@ -12,6 +12,7 @@ import { generateStickerPNGs, generateSingleSticker } from '../services/memepute
 import { postprocessStickerPng } from '../services/stickerPostprocess';
 import { workerClient } from '../services/workerClient';
 import { getTemplate } from '../ai/templates/stickers';
+import { uploadAndGetSignedUrl, generateAssetKey } from '../services/storage/supabaseStorage';
 import {
   createStickerSet,
   addStickerToSet,
@@ -134,8 +135,19 @@ async function handleImageUpload(ctx: Context) {
         const assetResult = await workerClient.prepareAsset(filePath);
         const assetPath = assetResult.output_path;
         
-        // Update session with prepared asset
-        setSession(ctx.from!.id, { uploadedFiles: [{ fileId: fileId!, filePath: assetPath }] });
+        // Upload prepared asset to Supabase Storage and get signed URL
+        await ctx.reply('📤 Uploading asset to storage...');
+        const sessionId = `session_${Date.now()}`;
+        const assetKey = generateAssetKey(ctx.from!.id, sessionId);
+        const assetUrl = await uploadAndGetSignedUrl(assetPath, assetKey);
+        
+        // Update session with prepared asset (keep path for debugging, URL for Memeputer)
+        setSession(ctx.from!.id, {
+          uploadedFiles: [{ fileId: fileId!, filePath: assetPath }],
+          baseImagePath: assetPath,
+          baseImageUrl: assetUrl,
+          assetKey: assetKey,
+        });
         
         // Cleanup original file
         cleanupFile(filePath);
@@ -144,12 +156,25 @@ async function handleImageUpload(ctx: Context) {
           'What is this project/coin/mascot about? (vibe, inside jokes, do\'s/don\'ts, colors, keywords)\n\nOr send /skip to skip.',
         );
       } catch (assetError: any) {
-        console.error('Asset preparation error:', assetError);
-        // Fallback: use original image
-        setSession(ctx.from!.id, { uploadedFiles: [{ fileId: fileId!, filePath }] });
-        await ctx.reply(
-          '⚠️ Asset preparation failed, using original image.\n\nWhat is this project/coin/mascot about? (vibe, inside jokes, do\'s/don\'ts, colors, keywords)\n\nOr send /skip to skip.',
-        );
+        console.error('Asset preparation/upload error:', assetError);
+        // Fallback: use original image (but still try to upload)
+        try {
+          const sessionId = `session_${Date.now()}`;
+          const assetKey = generateAssetKey(ctx.from!.id, sessionId);
+          const assetUrl = await uploadAndGetSignedUrl(filePath, assetKey);
+          setSession(ctx.from!.id, {
+            uploadedFiles: [{ fileId: fileId!, filePath }],
+            baseImagePath: filePath,
+            baseImageUrl: assetUrl,
+            assetKey: assetKey,
+          });
+          await ctx.reply(
+            '⚠️ Asset preparation failed, using original image.\n\nWhat is this project/coin/mascot about? (vibe, inside jokes, do\'s/don\'ts, colors, keywords)\n\nOr send /skip to skip.',
+          );
+        } catch (uploadError: any) {
+          console.error('Upload fallback also failed:', uploadError);
+          await ctx.reply('❌ Failed to prepare and upload asset. Please try again.');
+        }
       }
     } catch (error: any) {
       console.error('Image download error:', error);
@@ -194,15 +219,14 @@ export async function handleCustomStickerInstructions(ctx: Context, instructions
 
   setImmediate(async () => {
     try {
-      const baseImage = session.uploadedFiles[0];
-      if (!baseImage.filePath || !fs.existsSync(baseImage.filePath)) {
-        await ctx.reply('❌ Base image not found.');
+      if (!session.baseImageUrl) {
+        await ctx.reply('❌ Base image URL not found. Please upload an image again.');
         return;
       }
 
-      // Generate single sticker using Memeputer
+      // Generate single sticker using Memeputer (with URL instead of local path)
       const generatedPath = await generateSingleSticker({
-        baseImagePath: baseImage.filePath,
+        baseImageUrl: session.baseImageUrl,
         context: session.projectContext || undefined,
         customInstructions: instructions,
       });
@@ -240,9 +264,9 @@ export async function handleCustomStickerInstructions(ctx: Context, instructions
         stickerFormat: 'static',
       });
 
-      // Cleanup asset
-      if (fs.existsSync(baseImage.filePath)) {
-        cleanupFile(baseImage.filePath);
+      // Cleanup asset (optional - URL is already uploaded)
+      if (session.baseImagePath && fs.existsSync(session.baseImagePath)) {
+        cleanupFile(session.baseImagePath);
       }
     } catch (error: any) {
       console.error('Custom sticker generation error:', error);
@@ -263,9 +287,8 @@ export async function generateAutoStickerSet(ctx: Context) {
   const generatedStickers: Array<{ fileId: string; filePath: string }> = [];
 
   try {
-    const baseImage = session.uploadedFiles[0];
-    if (!baseImage.filePath || !fs.existsSync(baseImage.filePath)) {
-      await ctx.reply('❌ Base image not found.');
+    if (!session.baseImageUrl) {
+      await ctx.reply('❌ Base image URL not found. Please upload an image again.');
       return;
     }
 
@@ -277,7 +300,7 @@ export async function generateAutoStickerSet(ctx: Context) {
 
       try {
         const generatedPath = await generateSingleSticker({
-          baseImagePath: baseImage.filePath,
+          baseImageUrl: session.baseImageUrl,
           context: session.projectContext || undefined,
           template: template,
         });
