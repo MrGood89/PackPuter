@@ -118,9 +118,11 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
     });
 
     // Build prompt - be more explicit about what we need
+    // IMPORTANT: Explicitly mention that base_image_url is provided in the request body
     let prompt: string;
     if (customInstructions) {
       prompt = `Generate a Telegram sticker image. Custom instructions: ${customInstructions}. ` +
+        `IMPORTANT: The base_image_url is provided in the request body. Fetch the image from that URL. ` +
         `The base image is a prepared character asset (transparent background, white outline, already cut out). ` +
         `Generate the sticker showing the character performing the action described in the custom instructions. ` +
         `Requirements: ` +
@@ -131,9 +133,11 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
         `- PNG format with alpha channel ` +
         `- Single character only, no extra people or objects ` +
         `- Keep character identity consistent ` +
-        `Return the image as a URL or base64.`;
+        `Return a JSON job spec with version "3.0", type "image_sticker", engine "memeputer_i2i".`;
     } else if (template) {
-      prompt = buildStickerPrompt(template, context, 0, 1);
+      prompt = buildStickerPrompt(template, context, 0, 1) + 
+        ` IMPORTANT: The base_image_url is provided in the request body. Fetch the image from that URL. ` +
+        `Return a JSON job spec with version "3.0", type "image_sticker", engine "memeputer_i2i".`;
     } else {
       throw new Error('Either template or customInstructions must be provided');
     }
@@ -166,9 +170,12 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
     }
     
     // Build JSON request body with URL reference (no base64)
+    // Include URL in message as well for agent to extract if needed (fallback)
+    const messageWithUrl = `${prompt}\n\nBase image URL (also in request body as base_image_url): ${baseImageUrl}`;
+    
     const requestBody: any = {
-      message: prompt,
-      base_image_url: baseImageUrl, // Send public HTTPS URL
+      message: messageWithUrl,
+      base_image_url: baseImageUrl, // Send public HTTPS URL (PRIMARY - agent should use this)
       base_image_ref: baseImageUrl, // Also send as ref for compatibility
       sticker_format: 'image',
       sticker_type: 'image_sticker',
