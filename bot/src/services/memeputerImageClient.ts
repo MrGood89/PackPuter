@@ -255,9 +255,24 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
       hasNeeds: !!responseData?.needs,
       hasImageUrl: !!(responseData?.image_url || responseData?.image),
       hasPrompt: !!responseData?.prompt,
+      hasResponseField: !!responseData?.response,
       responseKeys: responseData ? Object.keys(responseData) : [],
       responsePreview: JSON.stringify(responseData).substring(0, 1000),
     });
+    
+    // Check for error response format: { "response": "⚠️ An error occurred...", "model": "...", "temperature": ... }
+    if (responseData?.response && typeof responseData.response === 'string' && 
+        (responseData.response.includes('error') || responseData.response.includes('⚠️') || responseData.response.includes('An error occurred'))) {
+      console.error(`[${timestamp}] [AI Image] ❌ Agent returned error response:`, responseData.response);
+      console.error(`[${timestamp}] [AI Image] Response model:`, responseData.model);
+      console.error(`[${timestamp}] [AI Image] This might indicate:`);
+      console.error(`[${timestamp}] [AI Image]   1. Agent couldn't fetch the image from the URL`);
+      console.error(`[${timestamp}] [AI Image]   2. Agent doesn't have internet access to fetch external URLs`);
+      console.error(`[${timestamp}] [AI Image]   3. Agent encountered an error processing the image`);
+      console.error(`[${timestamp}] [AI Image] Image URL sent:`, maskUrlForLogging(baseImageUrl));
+      console.error(`[${timestamp}] [AI Image] Preflight check passed, so URL is accessible from our side.`);
+      throw new Error(`Memeputer agent processing error: ${responseData.response}. The agent might not be able to fetch external URLs, or there was an error processing the image. Please contact Memeputer support or check agent configuration for external URL access.`);
+    }
     
     if (responseData?.needs) {
       // Check if agent is asking for base_image_url even though we sent it
@@ -273,15 +288,113 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
       throw new Error(`Memeputer needs additional information: ${JSON.stringify(responseData.needs)}`);
     }
 
-    // Agent returns job spec with engine: "memeputer_i2i" - we need to handle this
-    // For now, check if we got a job spec or an image URL directly
+    // Agent returns job spec with engine: "memeputer_i2i" - call Memeputer image generation API
     if (responseData?.type === 'image_sticker' && responseData?.engine === 'memeputer_i2i') {
-      // Agent returned a job spec - this means Memeputer needs to generate the image
-      // The job spec contains: prompt, negative_prompt, canvas, etc.
-      // We would need to call Memeputer's image generation endpoint with this spec
-      // For now, throw a clear error explaining this
-      console.error(`[${timestamp}] [AI Image] ❌ Agent returned job spec (engine: ${responseData.engine}), but image generation endpoint integration is not yet implemented`);
-      throw new Error('Agent returned image generation job spec, but Memeputer image generation endpoint integration is not yet implemented. This requires calling Memeputer\'s image generation API with the job spec. Job spec received: ' + JSON.stringify(responseData).substring(0, 500));
+      console.log(`[${timestamp}] [AI Image] ✅ Agent returned job spec (engine: ${responseData.engine})`);
+      console.log(`[${timestamp}] [AI Image] Job spec keys:`, Object.keys(responseData));
+      console.log(`[${timestamp}] [AI Image] Calling Memeputer image generation API...`);
+      
+      try {
+        // Call Memeputer image generation endpoint with the job spec
+        // Endpoint format: /v1/images/generations or /api/v1/agents/{agentId}/generate-image
+        // Try the agent-specific endpoint first
+        const imageGenEndpoint = `/api/v1/agents/${env.MEMEPUTER_AGENT_ID}/generate-image`;
+        
+        // Build request with job spec
+        const imageGenRequest = {
+          prompt: responseData.prompt,
+          negative_prompt: responseData.negative_prompt || '',
+          base_image_url: baseImageUrl, // Include the original base image URL
+          width: responseData.canvas?.w || 512,
+          height: responseData.canvas?.h || 512,
+          n: 1,
+          response_format: 'url',
+        };
+        
+        console.log(`[${timestamp}] [AI Image] Calling: ${env.MEMEPUTER_API_BASE}${imageGenEndpoint}`);
+        console.log(`[${timestamp}] [AI Image] Request:`, {
+          hasPrompt: !!imageGenRequest.prompt,
+          hasNegativePrompt: !!imageGenRequest.negative_prompt,
+          hasBaseImageUrl: !!imageGenRequest.base_image_url,
+          width: imageGenRequest.width,
+          height: imageGenRequest.height,
+        });
+        
+        const imageGenResponse = await client.post(
+          imageGenEndpoint,
+          imageGenRequest,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            timeout: 120000, // 2 minutes
+          }
+        );
+        
+        console.log(`[${timestamp}] [AI Image] Image generation response status: ${imageGenResponse.status}`);
+        console.log(`[${timestamp}] [AI Image] Image generation response keys:`, Object.keys(imageGenResponse.data || {}));
+        
+        // Parse response - Memeputer might return various formats:
+        // { data: [{ url: "..." }] }
+        // { data: { url: "..." } }
+        // { url: "..." }
+        // { image_url: "..." }
+        let imageUrl: string | undefined;
+        const responseData = imageGenResponse.data;
+        
+        if (responseData?.data) {
+          if (Array.isArray(responseData.data) && responseData.data[0]?.url) {
+            imageUrl = responseData.data[0].url;
+          } else if (responseData.data?.url) {
+            imageUrl = responseData.data.url;
+          } else if (responseData.data?.image_url) {
+            imageUrl = responseData.data.image_url;
+          }
+        } else if (responseData?.url) {
+          imageUrl = responseData.url;
+        } else if (responseData?.image_url) {
+          imageUrl = responseData.image_url;
+        }
+        
+        console.log(`[${timestamp}] [AI Image] Parsed response structure:`, {
+          hasData: !!responseData?.data,
+          dataIsArray: Array.isArray(responseData?.data),
+          hasUrl: !!responseData?.url,
+          hasImageUrl: !!responseData?.image_url,
+          foundImageUrl: !!imageUrl,
+        });
+        
+        if (imageUrl) {
+          console.log(`[${timestamp}] [AI Image] ✅ Found generated image URL: ${imageUrl.substring(0, 100)}...`);
+          // Download the image
+          const imageResponse = await axios.get(imageUrl, {
+            responseType: 'arraybuffer',
+            timeout: 30000,
+          });
+          
+          const outputPath = getTempFilePath(`ai_sticker_${Date.now()}`, 'png');
+          fs.writeFileSync(outputPath, Buffer.from(imageResponse.data));
+          
+          console.log(`[${timestamp}] [AI Image] ✅ Generated sticker: ${outputPath}`);
+          return outputPath;
+        } else {
+          console.error(`[${timestamp}] [AI Image] ❌ No image URL in image generation response:`, JSON.stringify(imageGenResponse.data).substring(0, 500));
+          throw new Error('Memeputer image generation API did not return an image URL. Response: ' + JSON.stringify(imageGenResponse.data).substring(0, 500));
+        }
+      } catch (imageGenError: any) {
+        console.error(`[${timestamp}] [AI Image] ❌ Image generation API call failed:`, {
+          message: imageGenError.message,
+          status: imageGenError.response?.status,
+          data: imageGenError.response?.data,
+        });
+        
+        // If the endpoint doesn't exist or returns 404, provide helpful error
+        if (imageGenError.response?.status === 404) {
+          throw new Error('Memeputer image generation endpoint not found. The agent returned a job spec, but the image generation API endpoint may not be available or may use a different path. Please check Memeputer API documentation for the correct image generation endpoint.');
+        }
+        
+        throw new Error(`Memeputer image generation failed: ${imageGenError.message}. Job spec was valid, but the image generation API call failed.`);
+      }
     }
 
     // Fallback: check if response contains image URL directly (some agents might return it)
