@@ -56,31 +56,56 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
     const imageBase64 = imageBuffer.toString('base64');
     const imageMimeType = baseImagePath.endsWith('.png') ? 'image/png' : 'image/jpeg';
 
-    // Build prompt
+    // Build prompt - be more explicit about what we need
     let prompt: string;
     if (customInstructions) {
-      prompt = `Generate a Telegram sticker image based on these custom instructions: ${customInstructions}. ` +
-        `Use the same character from the base image. ` +
-        `Requirements: transparent background (no scenery, no background), clean sticker cutout style, 512x512 pixels, PNG with alpha channel.`;
+      prompt = `Generate a Telegram sticker image. Custom instructions: ${customInstructions}. ` +
+        `The base image is a prepared character asset (transparent background, white outline, already cut out). ` +
+        `Generate the sticker showing the character performing the action described in the custom instructions. ` +
+        `Requirements: ` +
+        `- Use the exact same character from the base image (same face, same outfit, same proportions) ` +
+        `- Transparent background (no scenery, no background, no environment) ` +
+        `- Clean sticker cutout style ` +
+        `- 512x512 pixels ` +
+        `- PNG format with alpha channel ` +
+        `- Single character only, no extra people or objects ` +
+        `- Keep character identity consistent ` +
+        `Return the image as a URL or base64.`;
     } else if (template) {
-      const templateText = getTemplateText(template);
       prompt = buildStickerPrompt(template, context, 0, 1);
     } else {
       throw new Error('Either template or customInstructions must be provided');
     }
 
-    // Call Memeputer API
+    // Call Memeputer API - Agent expects specific fields based on knowledge base
     const endpoint = `/v1/agents/${env.MEMEPUTER_AGENT_ID}/chat`;
     
-    const requestBody = {
-      message: prompt,
-      base_image: `data:${imageMimeType};base64,${imageBase64}`,
+    // Build request according to agent contract from knowledge base
+    // Agent expects: base_image_ref, sticker_format, user_context, mode, template_id, user_prompt
+    const requestBody: any = {
+      message: prompt, // Keep message for backward compatibility
+      base_image: `data:${imageMimeType};base64,${imageBase64}`, // Send actual image data
+      base_image_ref: 'uploaded_asset', // Reference string for agent (required by contract)
+      sticker_format: 'image', // Required by contract
       sticker_type: 'image_sticker',
-      type: 'image_sticker', // Also include 'type' field
+      type: 'image_sticker',
+      asset_prepared: true,
+      mode: customInstructions ? 'custom' : 'auto', // Required by contract
     };
+    
+    if (customInstructions) {
+      requestBody.user_prompt = customInstructions; // Required for custom mode
+    } else if (template) {
+      requestBody.template_id = template; // Required for auto mode
+    }
+    
+    if (context) {
+      requestBody.user_context = context; // Optional but helpful
+    }
     
     console.log(`[${timestamp}] [AI Image] Calling Memeputer: ${env.MEMEPUTER_API_BASE}${endpoint}`);
     console.log(`[${timestamp}] [AI Image] Request body keys:`, Object.keys(requestBody));
+    console.log(`[${timestamp}] [AI Image] Mode: ${requestBody.mode}, Template: ${requestBody.template_id || 'N/A'}, Has context: ${!!requestBody.user_context}`);
     console.log(`[${timestamp}] [AI Image] Prompt length: ${prompt.length}, Image size: ${imageBase64.length} bytes`);
     
     const response = await client.post(
@@ -88,7 +113,8 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
       requestBody
     );
 
-    // Parse response - Memeputer should return { type: "image_sticker", image_url: "..." } or { needs: [...] }
+    // Parse response - Agent returns JSON job spec: { type: "image_sticker", engine: "memeputer_i2i", prompt: "...", ... }
+    // OR { needs: [...] } if something is missing
     // Handle nested response format (response.data.data.response) or direct format (response.data)
     let responseData = response.data;
     if (responseData?.data?.response) {
@@ -107,26 +133,45 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
       responseData = responseData.data;
     }
     
+    console.log(`[${timestamp}] [AI Image] Memeputer response status: ${response.status}`);
     console.log(`[${timestamp}] [AI Image] Memeputer response:`, {
       hasData: !!responseData,
       type: responseData?.type,
+      engine: responseData?.engine,
       hasNeeds: !!responseData?.needs,
       hasImageUrl: !!(responseData?.image_url || responseData?.image),
+      hasPrompt: !!responseData?.prompt,
+      responseKeys: responseData ? Object.keys(responseData) : [],
+      responsePreview: JSON.stringify(responseData).substring(0, 1000),
     });
     
     if (responseData?.needs) {
       throw new Error(`Memeputer needs additional information: ${JSON.stringify(responseData.needs)}`);
     }
 
-    if (responseData?.type !== 'image_sticker') {
-      console.error(`[${timestamp}] [AI Image] ❌ Unexpected response type:`, responseData);
-      throw new Error(`Memeputer returned unexpected response type: ${responseData?.type || 'unknown'}. Expected 'image_sticker'.`);
+    // Agent returns job spec with engine: "memeputer_i2i" - we need to handle this
+    // For now, check if we got a job spec or an image URL directly
+    if (responseData?.type === 'image_sticker' && responseData?.engine === 'memeputer_i2i') {
+      // Agent returned a job spec - this means Memeputer needs to generate the image
+      // The job spec contains: prompt, negative_prompt, canvas, etc.
+      // We would need to call Memeputer's image generation endpoint with this spec
+      // For now, throw a clear error explaining this
+      console.error(`[${timestamp}] [AI Image] ❌ Agent returned job spec (engine: ${responseData.engine}), but image generation endpoint integration is not yet implemented`);
+      throw new Error('Agent returned image generation job spec, but Memeputer image generation endpoint integration is not yet implemented. This requires calling Memeputer\'s image generation API with the job spec. Job spec received: ' + JSON.stringify(responseData).substring(0, 500));
     }
 
-    const imageUrl = responseData.image_url || responseData.image;
-    if (!imageUrl) {
-      console.error(`[${timestamp}] [AI Image] ❌ No image URL in response:`, responseData);
-      throw new Error('Memeputer did not return an image URL. Response: ' + JSON.stringify(responseData).substring(0, 500));
+    // Fallback: check if response contains image URL directly (some agents might return it)
+    const imageUrl = responseData?.image_url || responseData?.image;
+    if (imageUrl) {
+      console.log(`[${timestamp}] [AI Image] ✅ Found image URL in response`);
+      // Continue with image download below
+    } else if (responseData?.type === 'image_sticker') {
+      // Got image_sticker type but no URL and no engine - might be a different format
+      console.error(`[${timestamp}] [AI Image] ❌ Got image_sticker type but no image URL or job spec:`, responseData);
+      throw new Error('Memeputer returned image_sticker type but no image URL or job spec. Response: ' + JSON.stringify(responseData).substring(0, 500));
+    } else {
+      console.error(`[${timestamp}] [AI Image] ❌ Unexpected response:`, responseData);
+      throw new Error('Memeputer returned unexpected response. Expected image_sticker type or job spec. Response: ' + JSON.stringify(responseData).substring(0, 500));
     }
 
     // Download the generated image
