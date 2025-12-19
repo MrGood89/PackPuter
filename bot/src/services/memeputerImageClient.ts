@@ -29,6 +29,17 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
   const { baseImageUrl, context, template, customInstructions } = options;
   const timestamp = new Date().toISOString();
   
+  // Helper function to mask URL for logging (defined early)
+  function maskUrlForLogging(url: string): string {
+    try {
+      const urlObj = new URL(url);
+      const maskedSearch = urlObj.search.replace(/token=[^&]*/gi, 'token=***').replace(/signature=[^&]*/gi, 'signature=***');
+      return `${urlObj.origin}${urlObj.pathname}${maskedSearch}`;
+    } catch {
+      return url.substring(0, 50) + '...';
+    }
+  }
+  
   console.log(`[${timestamp}] [AI Image] Generating single sticker via Memeputer:`, {
     template,
     hasContext: !!context,
@@ -88,17 +99,6 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
   } catch (preflightError: any) {
     console.error(`[${timestamp}] [AI Image] ❌ Preflight check failed:`, preflightError.message);
     throw new Error(`Hosted image URL not accessible by Memeputer: ${preflightError.message}. URL: ${maskUrlForLogging(baseImageUrl)}`);
-  }
-  
-  // Helper function to mask URL for logging
-  function maskUrlForLogging(url: string): string {
-    try {
-      const urlObj = new URL(url);
-      const maskedSearch = urlObj.search.replace(/token=[^&]*/gi, 'token=***').replace(/signature=[^&]*/gi, 'signature=***');
-      return `${urlObj.origin}${urlObj.pathname}${maskedSearch}`;
-    } catch {
-      return url.substring(0, 50) + '...';
-    }
   }
 
   // Check if Memeputer is configured
@@ -190,8 +190,10 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
     const jsonPayload = JSON.stringify(requestBody);
     const payloadSizeKB = Math.round(jsonPayload.length / 1024);
     
-    const urlDomain = imageUrl.hostname;
-    const urlPath = imageUrl.pathname;
+    // Extract URL parts for logging (re-parse since imageUrl might not be in scope)
+    const urlForLogging = new URL(baseImageUrl);
+    const urlDomain = urlForLogging.hostname;
+    const urlPath = urlForLogging.pathname;
     
     console.log(`[${timestamp}] [AI Image] Calling Memeputer: ${env.MEMEPUTER_API_BASE}${endpoint}`);
     console.log(`[${timestamp}] [AI Image] Using JSON with base_image_url (no base64 payload)`);

@@ -358,9 +358,9 @@ export async function generateAutoStickerSet(ctx: Context) {
       }
     }
 
-    // Cleanup asset
-    if (fs.existsSync(baseImage.filePath)) {
-      cleanupFile(baseImage.filePath);
+    // Cleanup asset (optional - URL is already uploaded)
+    if (session.baseImagePath && fs.existsSync(session.baseImagePath)) {
+      cleanupFile(session.baseImagePath);
     }
   } catch (error: any) {
     console.error('Auto sticker set generation error:', error);
@@ -508,9 +508,9 @@ export async function handleAIImageTemplate(ctx: Context, templateInput: string)
       }
 
       // Cleanup asset (original base image was already cleaned up)
-      if (fs.existsSync(baseImage.filePath)) {
-        cleanupFile(baseImage.filePath);
-        console.log(`[${new Date().toISOString()}] [AI Image] Cleaned up asset: ${baseImage.filePath}`);
+      if (session.baseImagePath && fs.existsSync(session.baseImagePath)) {
+        cleanupFile(session.baseImagePath);
+        console.log(`[${new Date().toISOString()}] [AI Image] Cleaned up asset: ${session.baseImagePath}`);
       }
     } catch (error: any) {
       console.error('AI image generation error:', error);
