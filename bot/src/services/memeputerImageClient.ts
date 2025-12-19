@@ -205,6 +205,8 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
     console.log(`[${timestamp}] [AI Image] Image URL (masked): ${maskUrlForLogging(baseImageUrl)}`);
     console.log(`[${timestamp}] [AI Image] Estimated JSON payload size: ~${payloadSizeKB} KB`);
     console.log(`[${timestamp}] [AI Image] Request body keys:`, Object.keys(requestBody));
+    console.log(`[${timestamp}] [AI Image] Request body base_image_url present:`, !!requestBody.base_image_url);
+    console.log(`[${timestamp}] [AI Image] Request body base_image_url value (first 100 chars):`, requestBody.base_image_url?.substring(0, 100));
     
     const response = await client.post(
       endpoint,
@@ -251,6 +253,16 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
     });
     
     if (responseData?.needs) {
+      // Check if agent is asking for base_image_url even though we sent it
+      const needsList = Array.isArray(responseData.needs) ? responseData.needs : [responseData.needs];
+      if (needsList.includes('base_image_url') || needsList.includes('base_image')) {
+        console.error(`[${timestamp}] [AI Image] ⚠️ Agent requested base_image_url/base_image, but we sent it!`);
+        console.error(`[${timestamp}] [AI Image] Request body had base_image_url:`, !!requestBody.base_image_url);
+        console.error(`[${timestamp}] [AI Image] Request body had base_image_ref:`, !!requestBody.base_image_ref);
+        console.error(`[${timestamp}] [AI Image] This likely means the Memeputer agent knowledge base needs to be updated.`);
+        console.error(`[${timestamp}] [AI Image] Agent hint:`, responseData.hint || 'No hint provided');
+        throw new Error(`Memeputer agent knowledge base needs update: Agent is requesting base_image_url even though we sent it. Please update the agent knowledge base to accept base_image_url (HTTPS URL). Agent hint: ${responseData.hint || 'No hint'}`);
+      }
       throw new Error(`Memeputer needs additional information: ${JSON.stringify(responseData.needs)}`);
     }
 
