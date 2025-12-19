@@ -300,13 +300,28 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
         // Try the agent-specific endpoint first
         const imageGenEndpoint = `/api/v1/agents/${env.MEMEPUTER_AGENT_ID}/generate-image`;
         
+        // Extract job spec fields to avoid TypeScript issues
+        const jobSpec = responseData;
+        const jobPrompt: string = jobSpec.prompt || '';
+        const jobNegativePrompt: string = jobSpec.negative_prompt || '';
+        const jobCanvasW: number = jobSpec.canvas?.w || 512;
+        const jobCanvasH: number = jobSpec.canvas?.h || 512;
+        
         // Build request with job spec
-        const imageGenRequest = {
-          prompt: responseData.prompt,
-          negative_prompt: responseData.negative_prompt || '',
-          base_image_url: baseImageUrl, // Include the original base image URL
-          width: responseData.canvas?.w || 512,
-          height: responseData.canvas?.h || 512,
+        const imageGenRequest: {
+          prompt: string;
+          negative_prompt: string;
+          base_image_url: string;
+          width: number;
+          height: number;
+          n: number;
+          response_format: string;
+        } = {
+          prompt: jobPrompt,
+          negative_prompt: jobNegativePrompt,
+          base_image_url: baseImageUrl,
+          width: jobCanvasW,
+          height: jobCanvasH,
           n: 1,
           response_format: 'url',
         };
@@ -329,7 +344,7 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
             },
             timeout: 120000, // 2 minutes
           }
-        );
+        ) as any;
         
         console.log(`[${timestamp}] [AI Image] Image generation response status: ${imageGenResponse.status}`);
         console.log(`[${timestamp}] [AI Image] Image generation response keys:`, Object.keys(imageGenResponse.data || {}));
@@ -340,27 +355,27 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
         // { url: "..." }
         // { image_url: "..." }
         let imageUrl: string | undefined;
-        const responseData = imageGenResponse.data;
+        const imageGenResponseData: any = imageGenResponse.data;
         
-        if (responseData?.data) {
-          if (Array.isArray(responseData.data) && responseData.data[0]?.url) {
-            imageUrl = responseData.data[0].url;
-          } else if (responseData.data?.url) {
-            imageUrl = responseData.data.url;
-          } else if (responseData.data?.image_url) {
-            imageUrl = responseData.data.image_url;
+        if (imageGenResponseData?.data) {
+          if (Array.isArray(imageGenResponseData.data) && imageGenResponseData.data[0]?.url) {
+            imageUrl = imageGenResponseData.data[0].url;
+          } else if (imageGenResponseData.data?.url) {
+            imageUrl = imageGenResponseData.data.url;
+          } else if (imageGenResponseData.data?.image_url) {
+            imageUrl = imageGenResponseData.data.image_url;
           }
-        } else if (responseData?.url) {
-          imageUrl = responseData.url;
-        } else if (responseData?.image_url) {
-          imageUrl = responseData.image_url;
+        } else if (imageGenResponseData?.url) {
+          imageUrl = imageGenResponseData.url;
+        } else if (imageGenResponseData?.image_url) {
+          imageUrl = imageGenResponseData.image_url;
         }
         
         console.log(`[${timestamp}] [AI Image] Parsed response structure:`, {
-          hasData: !!responseData?.data,
-          dataIsArray: Array.isArray(responseData?.data),
-          hasUrl: !!responseData?.url,
-          hasImageUrl: !!responseData?.image_url,
+          hasData: !!imageGenResponseData?.data,
+          dataIsArray: Array.isArray(imageGenResponseData?.data),
+          hasUrl: !!imageGenResponseData?.url,
+          hasImageUrl: !!imageGenResponseData?.image_url,
           foundImageUrl: !!imageUrl,
         });
         
