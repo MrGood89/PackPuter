@@ -197,6 +197,27 @@ setupBatchConvertFlow(bot);
 setupAIFlows(bot);
 setupAIImageFlow(bot);
 
+// Debug: Log all message updates to see what we're receiving
+bot.use(async (ctx, next) => {
+  const timestamp = new Date().toISOString();
+  if (ctx.updateType === 'message' && ctx.message) {
+    const hasPhoto = 'photo' in ctx.message && ctx.message.photo;
+    const hasDocument = 'document' in ctx.message && ctx.message.document;
+    if (hasPhoto || hasDocument) {
+      console.log(`[${timestamp}] [Debug Middleware] Received message with photo=${!!hasPhoto}, document=${!!hasDocument}, userId: ${ctx.from?.id}`);
+      const session = getSession(ctx.from!.id);
+      console.log(`[${timestamp}] [Debug Middleware] Session mode: ${session.mode}`);
+      if (hasPhoto) {
+        console.log(`[${timestamp}] [Debug Middleware] Photo array length: ${ctx.message.photo?.length || 0}`);
+      }
+      if (hasDocument) {
+        console.log(`[${timestamp}] [Debug Middleware] Document mimeType: ${ctx.message.document?.mime_type}`);
+      }
+    }
+  }
+  return next();
+});
+
 // Handle text messages for various flows
 bot.on('text', async (ctx) => {
   const session = getSession(ctx.from!.id);

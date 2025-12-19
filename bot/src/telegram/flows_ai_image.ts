@@ -18,26 +18,41 @@ import {
 } from './packs';
 
 export function setupAIImageFlow(bot: Telegraf) {
+  const setupTimestamp = new Date().toISOString();
+  console.log(`[${setupTimestamp}] [AI Image Flow] Registering photo and document handlers`);
+  
   // Handle image uploads for AI Image flow
   bot.on('photo', async (ctx: Context) => {
     const timestamp = new Date().toISOString();
     console.log(`[${timestamp}] [AI Image Flow] Photo event received for user ${ctx.from?.id}`);
-    await handleImageUpload(ctx);
+    const session = getSession(ctx.from!.id);
+    console.log(`[${timestamp}] [AI Image Flow] Session mode: ${session.mode}`);
+    if (session.mode === 'ai_image') {
+      await handleImageUpload(ctx);
+    } else {
+      console.log(`[${timestamp}] [AI Image Flow] Skipping - wrong mode (expected 'ai_image', got '${session.mode}')`);
+    }
   });
 
   bot.on('document', async (ctx: Context) => {
     const timestamp = new Date().toISOString();
     console.log(`[${timestamp}] [AI Image Flow] Document event received for user ${ctx.from?.id}`);
-    if (ctx.message && 'document' in ctx.message && ctx.message.document?.mime_type) {
+    const session = getSession(ctx.from!.id);
+    console.log(`[${timestamp}] [AI Image Flow] Session mode: ${session.mode}`);
+    if (session.mode === 'ai_image' && ctx.message && 'document' in ctx.message && ctx.message.document?.mime_type) {
       const mimeType = ctx.message.document.mime_type;
       console.log(`[${timestamp}] [AI Image Flow] Document mimeType: ${mimeType}`);
       if (isValidImageFile(mimeType)) {
         await handleImageUpload(ctx);
       } else {
-        console.log(`[${timestamp}] [AI Image Flow] Document is not a valid image file`);
+        console.log(`[${timestamp}] [AI Image Flow] Invalid image file type: ${mimeType}`);
       }
+    } else {
+      console.log(`[${timestamp}] [AI Image Flow] Skipping - wrong mode or no document`);
     }
   });
+  
+  console.log(`[${setupTimestamp}] [AI Image Flow] Handlers registered successfully`);
 }
 
 async function handleImageUpload(ctx: Context) {
