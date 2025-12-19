@@ -302,9 +302,12 @@ def render_animation(
                     draw.ellipse([sparkle_x - 5, sparkle_y - 5, sparkle_x + 5, sparkle_y + 5],
                                fill=(255, 255, 0, sparkle_alpha))
             
-            # Save frame
+            # Save frame with alpha channel preserved
             frame_path = os.path.join(frames_dir, f'frame_{frame_idx:05d}.png')
-            frame.save(frame_path)
+            # Ensure frame is in RGBA mode before saving
+            if frame.mode != 'RGBA':
+                frame = frame.convert('RGBA')
+            frame.save(frame_path, 'PNG')  # Explicitly save as PNG to preserve alpha
             frame_paths.append(frame_path)
         
         # Encode to WEBM using ffmpeg
@@ -315,16 +318,17 @@ def render_animation(
         
         # Use ffmpeg to create video from frames with alpha channel
         # CRITICAL: Must use yuva420p for transparency (not yuv420p)
-        # Explicitly convert input to RGBA format to ensure alpha is preserved
+        # Ensure input is RGBA, then encode to VP9 with alpha
         cmd = [
             'ffmpeg',
             '-y',
             '-framerate', str(fps),
             '-i', os.path.join(frames_dir, 'frame_%05d.png'),
-            '-vf', 'format=rgba',    # Explicitly ensure RGBA format in filter chain
+            '-vf', 'format=rgba',  # Ensure input is RGBA (preserves alpha from PNG)
             '-c:v', 'libvpx-vp9',
             '-pix_fmt', 'yuva420p',  # VP9 with alpha channel (CRITICAL for transparency)
             '-auto-alt-ref', '0',    # Important for alpha in VP9
+            '-alpha_mode', '1',      # Explicitly enable alpha in VP9
             '-crf', '32',
             '-b:v', '0',
             '-an',                   # No audio
@@ -334,7 +338,9 @@ def render_animation(
         
         # Log FFmpeg output for debugging
         if result.stderr:
-            logger.debug(f"FFmpeg encoding stderr: {result.stderr[:500]}")
+            logger.warning(f"FFmpeg encoding stderr (first 1000 chars): {result.stderr[:1000]}")
+        if result.stdout:
+            logger.debug(f"FFmpeg encoding stdout: {result.stdout[:500]}")
         
         # Verify initial encoding has alpha
         from .ffmpeg_utils import probe_media
@@ -365,10 +371,11 @@ def render_animation(
                 '-y',
                 '-framerate', str(fps),
                 '-i', os.path.join(frames_dir, 'frame_%05d.png'),
-                '-vf', 'format=rgba',    # Explicitly ensure RGBA format in filter chain
+                '-vf', 'format=rgba',  # Ensure input is RGBA (preserves alpha from PNG)
                 '-c:v', 'libvpx-vp9',
                 '-pix_fmt', 'yuva420p',
                 '-auto-alt-ref', '0',
+                '-alpha_mode', '1',      # Explicitly enable alpha in VP9
                 '-crf', '36',  # Higher compression to meet size limit
                 '-b:v', '0',
                 '-an',
@@ -377,7 +384,9 @@ def render_animation(
             ]
             direct_result = subprocess.run(direct_cmd, check=True, capture_output=True, text=True)
             if direct_result.stderr:
-                logger.debug(f"FFmpeg direct encoding stderr: {direct_result.stderr[:500]}")
+                logger.warning(f"FFmpeg direct encoding stderr (first 1000 chars): {direct_result.stderr[:1000]}")
+            if direct_result.stdout:
+                logger.debug(f"FFmpeg direct encoding stdout: {direct_result.stdout[:500]}")
             
             # Probe for metadata
             duration_probe, width_probe, height_probe, fps_probe, pix_fmt_probe, has_audio_probe = probe_media(final_path)
@@ -420,10 +429,11 @@ def render_animation(
                     '-y',
                     '-framerate', str(fps),
                     '-i', os.path.join(frames_dir, 'frame_%05d.png'),
-                    '-vf', 'format=rgba',    # Explicitly ensure RGBA format in filter chain
+                    '-vf', 'format=rgba',  # Ensure input is RGBA (preserves alpha from PNG)
                     '-c:v', 'libvpx-vp9',
                     '-pix_fmt', 'yuva420p',
                     '-auto-alt-ref', '0',
+                    '-alpha_mode', '1',      # Explicitly enable alpha in VP9
                     '-crf', '36',  # Higher compression to meet size limit
                     '-b:v', '0',
                     '-an',
@@ -432,7 +442,9 @@ def render_animation(
                 ]
                 retry_result = subprocess.run(retry_cmd, check=True, capture_output=True, text=True)
                 if retry_result.stderr:
-                    logger.debug(f"FFmpeg retry stderr: {retry_result.stderr[:500]}")
+                    logger.warning(f"FFmpeg retry stderr (first 1000 chars): {retry_result.stderr[:1000]}")
+                if retry_result.stdout:
+                    logger.debug(f"FFmpeg retry stdout: {retry_result.stdout[:500]}")
                 
                 # Verify retry has alpha
                 _, _, _, _, retry_pix_fmt, _ = probe_media(retry_output)
