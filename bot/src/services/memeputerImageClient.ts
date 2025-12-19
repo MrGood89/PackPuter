@@ -156,25 +156,29 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
  * @deprecated Use generateSingleSticker for new code
  */
 export async function generateStickerPNGs(options: ImageGenerationOptions): Promise<string[]> {
-  const { baseImagePath, context, template, count } = options;
+  const { baseImagePath, context, template, count = 1 } = options;
   const timestamp = new Date().toISOString();
   
-  console.log(`[${timestamp}] [AI Image] Generating ${count} stickers via Memeputer:`, {
-    template,
+  // Ensure required values
+  const finalCount = count ?? 1;
+  const finalTemplate = template ?? 'GM';
+  
+  console.log(`[${timestamp}] [AI Image] Generating ${finalCount} stickers via Memeputer:`, {
+    template: finalTemplate,
     hasContext: !!context,
     baseImage: baseImagePath,
   });
 
   // Check cache first
   const cacheKey = stickerCache.generateKey(baseImagePath, {
-    template,
+    template: finalTemplate,
     context,
-    count,
+    count: finalCount,
   });
   
   // For multiple stickers, we can't use cache (each is unique)
   // But we can cache the prepared asset
-  if (count === 1) {
+  if (finalCount === 1) {
     const cached = stickerCache.get(cacheKey);
     if (cached && fs.existsSync(cached)) {
       console.log(`[${timestamp}] [AI Image] Using cached sticker: ${cached}`);
@@ -185,7 +189,7 @@ export async function generateStickerPNGs(options: ImageGenerationOptions): Prom
   // Check if Memeputer is configured
   if (!env.MEMEPUTER_API_KEY || !env.MEMEPUTER_AGENT_ID) {
     console.warn(`[${timestamp}] [AI Image] Memeputer not configured, using fallback`);
-    return generateFallbackStickers(baseImagePath, template, count);
+    return generateFallbackStickers(baseImagePath, finalTemplate, finalCount);
   }
 
   try {
@@ -202,10 +206,10 @@ export async function generateStickerPNGs(options: ImageGenerationOptions): Prom
     });
 
     // Generate each sticker variation
-    for (let i = 0; i < count; i++) {
-      const prompt = buildStickerPrompt(template, context, i, count);
+    for (let i = 0; i < finalCount; i++) {
+      const prompt = buildStickerPrompt(finalTemplate, context, i, finalCount);
       
-      console.log(`[${timestamp}] [AI Image] Generating sticker ${i + 1}/${count} via Memeputer`);
+      console.log(`[${timestamp}] [AI Image] Generating sticker ${i + 1}/${finalCount} via Memeputer`);
 
       // Read base image as base64
       const imageBuffer = fs.readFileSync(baseImagePath);
@@ -238,11 +242,11 @@ export async function generateStickerPNGs(options: ImageGenerationOptions): Prom
         });
 
         // Save to temp file
-        const outputPath = getTempFilePath(`ai_sticker_${template}_${i}`, 'png');
+        const outputPath = getTempFilePath(`ai_sticker_${finalTemplate}_${i}`, 'png');
         fs.writeFileSync(outputPath, Buffer.from(imageResponse.data));
         generatedPaths.push(outputPath);
 
-        console.log(`[${timestamp}] [AI Image] ✅ Generated sticker ${i + 1}/${count}: ${outputPath}`);
+        console.log(`[${timestamp}] [AI Image] ✅ Generated sticker ${i + 1}/${finalCount}: ${outputPath}`);
       } else if (response.data.data && response.data.data[0]?.url) {
         // Alternative response format
         const imageUrl = response.data.data[0].url;
@@ -251,13 +255,13 @@ export async function generateStickerPNGs(options: ImageGenerationOptions): Prom
           timeout: 30000,
         });
 
-        const outputPath = getTempFilePath(`ai_sticker_${template}_${i}`, 'png');
+        const outputPath = getTempFilePath(`ai_sticker_${finalTemplate}_${i}`, 'png');
         fs.writeFileSync(outputPath, Buffer.from(imageResponse.data));
         generatedPaths.push(outputPath);
 
-        console.log(`[${timestamp}] [AI Image] ✅ Generated sticker ${i + 1}/${count}: ${outputPath}`);
+        console.log(`[${timestamp}] [AI Image] ✅ Generated sticker ${i + 1}/${finalCount}: ${outputPath}`);
       } else {
-        console.error(`[${timestamp}] [AI Image] ❌ No image in response for sticker ${i + 1}:`, response.data);
+        console.error(`[${timestamp}] [AI Image] ❌ No image in response for sticker ${i + 1}/${finalCount}:`, response.data);
       }
     }
 
@@ -273,7 +277,7 @@ export async function generateStickerPNGs(options: ImageGenerationOptions): Prom
     
     // Fallback to simple processing
     console.log(`[${errorTimestamp}] [AI Image] Using fallback generation`);
-    return generateFallbackStickers(baseImagePath, template, count);
+    return generateFallbackStickers(baseImagePath, finalTemplate, finalCount);
   }
 }
 
