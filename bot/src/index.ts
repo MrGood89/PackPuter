@@ -1,3 +1,4 @@
+console.log('[Bot] ===== MODULE LOADING START =====');
 import { Telegraf } from 'telegraf';
 import { env } from './env';
 import { REMOVE_KEYBOARD, FORCE_REPLY } from './telegram/menus';
@@ -9,7 +10,10 @@ import { setupAIImageFlow, handleAIImageContext, handleAIImageTemplate } from '.
 import { getSession, setSession } from './telegram/sessions';
 import { startJobProcessor, stopJobProcessor } from './services/jobProcessor';
 
+console.log('[Bot] Creating Telegraf instance...');
 const bot = new Telegraf(env.TELEGRAM_BOT_TOKEN);
+console.log('[Bot] Telegraf instance created');
+console.log('[Bot] ===== MODULE LOADING END =====');
 
 // Enable Telegraf debug logging if in development
 if (process.env.NODE_ENV !== 'production') {

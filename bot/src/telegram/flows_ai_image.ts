@@ -1,8 +1,10 @@
+console.log('[flows_ai_image.ts] Module loading...');
 import { Context, Telegraf } from 'telegraf';
 import fs from 'fs';
 import axios from 'axios';
 import { getSession, setSession, resetSession } from './sessions';
 import { env } from '../env';
+console.log('[flows_ai_image.ts] Module loaded');
 import { isValidImageFile } from '../util/validate';
 import { getTempFilePath, cleanupFile } from '../util/file';
 import { FORCE_REPLY } from './menus';
