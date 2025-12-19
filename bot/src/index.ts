@@ -238,6 +238,20 @@ bot.on('text', async (ctx) => {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] [Text Handler] User ${ctx.from!.id} sent text: "${text}", mode: ${session.mode}`);
 
+  // Handle /skip as text input (not a command) - check before general command skip
+  if (textLower === '/skip' || textLower === 'skip') {
+    // Route to appropriate handler based on mode
+    if (session.mode === 'ai_image' && session.uploadedFiles.length > 0 && session.projectContext === undefined) {
+      await handleAIImageContext(ctx, '/skip');
+      return;
+    }
+    if (session.mode === 'ai' && session.uploadedFiles.length > 0 && !session.projectContext && !session.chosenTemplate) {
+      await handleProjectContext(ctx, '/skip');
+      return;
+    }
+    // If /skip doesn't match any flow, continue to normal processing
+  }
+
   // Skip if it's a command (commands are handled separately)
   if (text.startsWith('/')) {
     return;
