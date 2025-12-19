@@ -100,53 +100,53 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
       // Continue anyway - might be a false negative
     }
     
-    // Build FormData for multipart request with image
-    const formData = new FormData();
-    
-    // Add text fields
-    formData.append('message', prompt);
-    formData.append('base_image_ref', 'uploaded_asset');
-    formData.append('sticker_format', 'image');
-    formData.append('sticker_type', 'image_sticker');
-    // Removed 'type' field to avoid collisions
-    formData.append('asset_prepared', 'true');
-    formData.append('mode', customInstructions ? 'custom' : 'auto');
-    
-    if (customInstructions) {
-      formData.append('user_prompt', customInstructions);
-    } else if (template) {
-      formData.append('template_id', template);
-    }
-    
-    if (context) {
-      formData.append('user_context', context);
-    }
-    
-    // Add image file as stream (multipart)
-    const imageStream = fs.createReadStream(baseImagePath);
+    // Read image as base64 for JSON request
+    // The API may not support multipart/form-data, so we'll try base64 in JSON first
+    const imageBuffer = fs.readFileSync(baseImagePath);
+    const imageBase64 = imageBuffer.toString('base64');
     const imageMimeType = baseImagePath.endsWith('.png') ? 'image/png' : 'image/jpeg';
-    const imageFileName = baseImagePath.split('/').pop() || 'image.png';
-    formData.append('base_image', imageStream, {
-      filename: imageFileName,
-      contentType: imageMimeType,
-    });
+    const imageDataUri = `data:${imageMimeType};base64,${imageBase64}`;
     
     // Get file size for logging
     const imageStats = fs.statSync(baseImagePath);
     const imageSizeBytes = imageStats.size;
     
+    // Build JSON request body
+    const requestBody: any = {
+      message: prompt,
+      base_image: imageDataUri, // Send as data URI
+      base_image_ref: 'uploaded_asset',
+      sticker_format: 'image',
+      sticker_type: 'image_sticker',
+      asset_prepared: true,
+      mode: customInstructions ? 'custom' : 'auto',
+    };
+    
+    if (customInstructions) {
+      requestBody.user_prompt = customInstructions;
+    } else if (template) {
+      requestBody.template_id = template;
+    }
+    
+    if (context) {
+      requestBody.user_context = context;
+    }
+    
     console.log(`[${timestamp}] [AI Image] Calling Memeputer: ${env.MEMEPUTER_API_BASE}${endpoint}`);
-    console.log(`[${timestamp}] [AI Image] Using multipart/form-data with image file`);
+    console.log(`[${timestamp}] [AI Image] Using JSON with base64 image (data URI)`);
     console.log(`[${timestamp}] [AI Image] Mode: ${customInstructions ? 'custom' : 'auto'}, Template: ${template || 'N/A'}, Has context: ${!!context}`);
-    console.log(`[${timestamp}] [AI Image] Prompt length: ${prompt.length}, Image size: ${imageSizeBytes} bytes`);
+    console.log(`[${timestamp}] [AI Image] Prompt length: ${prompt.length}, Image size: ${imageSizeBytes} bytes, Base64 length: ${imageBase64.length}`);
+    console.log(`[${timestamp}] [AI Image] Request body keys:`, Object.keys(requestBody));
     
     const response = await client.post(
       endpoint,
-      formData,
+      requestBody,
       {
         headers: {
-          ...formData.getHeaders(), // This sets Content-Type with boundary
+          'Content-Type': 'application/json',
         },
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
       }
     );
 
