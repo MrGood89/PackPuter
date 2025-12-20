@@ -341,12 +341,18 @@ Generate the image and return ONLY the URL, like: https://example.com/image.png`
         let followUpData = followUpResponse.data;
         let responseText: string | undefined;
         
-        // Extract response text first (might contain URL)
+        // Extract response text first (might contain URL or error)
         if (followUpData?.data?.response) {
           if (typeof followUpData.data.response === 'string') {
             responseText = followUpData.data.response;
             try {
-              followUpData = JSON.parse(followUpData.data.response);
+              // Try to parse as JSON (might be a JSON string)
+              const parsed = JSON.parse(followUpData.data.response);
+              followUpData = parsed;
+              // Also keep the original text for error detection
+              if (parsed.error) {
+                responseText = parsed.error;
+              }
             } catch (e) {
               // Not JSON, keep as text
               followUpData = { response: followUpData.data.response };
@@ -357,13 +363,29 @@ Generate the image and return ONLY the URL, like: https://example.com/image.png`
         } else if (followUpData?.data) {
           if (typeof followUpData.data === 'string') {
             responseText = followUpData.data;
+            // Try to parse as JSON
+            try {
+              const parsed = JSON.parse(followUpData.data);
+              followUpData = parsed;
+              if (parsed.error) {
+                responseText = parsed.error;
+              }
+            } catch (e) {
+              // Not JSON, keep original
+            }
+          } else {
+            followUpData = followUpData.data;
           }
-          followUpData = followUpData.data;
         }
         
         // Also check if response itself is a string
         if (typeof followUpResponse.data === 'string') {
           responseText = followUpResponse.data;
+        }
+        
+        // Extract error from parsed JSON if available
+        if (followUpData?.error && typeof followUpData.error === 'string') {
+          responseText = followUpData.error;
         }
         
         console.log(`[${timestamp}] [AI Image] Follow-up response keys:`, followUpData ? Object.keys(followUpData) : []);
@@ -427,6 +449,24 @@ Generate the image and return ONLY the URL, like: https://example.com/image.png`
           console.log(`[${timestamp}] [AI Image] ✅ Generated sticker: ${outputPath}`);
           return outputPath;
         } else {
+          // Check if agent returned an error saying image generation is not available
+          const errorMessage = followUpData?.error || responseText || '';
+          const isImageGenNotAvailable = typeof errorMessage === 'string' && 
+            (errorMessage.toLowerCase().includes('image generation is not available') ||
+             errorMessage.toLowerCase().includes('contact memeputer support') ||
+             errorMessage.toLowerCase().includes('not available'));
+          
+          if (isImageGenNotAvailable) {
+            console.error(`[${timestamp}] [AI Image] ❌ Agent reports image generation is not available`);
+            console.error(`[${timestamp}] [AI Image] Agent error message:`, errorMessage);
+            console.error(`[${timestamp}] [AI Image] This indicates the Memeputer agent does not have access to image generation capabilities.`);
+            console.error(`[${timestamp}] [AI Image] Possible solutions:`);
+            console.error(`[${timestamp}] [AI Image]   1. Contact Memeputer support to enable image generation for your agent`);
+            console.error(`[${timestamp}] [AI Image]   2. Check if your agent needs additional permissions or API access`);
+            console.error(`[${timestamp}] [AI Image]   3. Verify that Memeputer's image generation service is available`);
+            throw new Error('The Memeputer agent reports that image generation is not available. Please contact Memeputer support to enable image generation capabilities for your agent, or check if there is an alternative image generation endpoint available.');
+          }
+          
           // Check if agent returned another job spec (common issue)
           const isAnotherJobSpec = followUpData?.type === 'image_sticker' && followUpData?.engine === 'memeputer_i2i';
           
