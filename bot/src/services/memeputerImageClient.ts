@@ -396,8 +396,9 @@ Generate the image and return ONLY the URL, like: https://example.com/image.png`
           const urlPattern = /https?:\/\/[^\s\)"']+\.(png|jpg|jpeg|webp|gif)(\?[^\s\)"']*)?/gi;
           const matches = responseText.match(urlPattern);
           if (matches && matches.length > 0) {
-            imageUrl = matches[0];
-            console.log(`[${timestamp}] [AI Image] ✅ Extracted URL from text response: ${imageUrl.substring(0, 100)}...`);
+            const extractedUrl = matches[0];
+            imageUrl = extractedUrl;
+            console.log(`[${timestamp}] [AI Image] ✅ Extracted URL from text response: ${extractedUrl.substring(0, 100)}...`);
           }
         }
         
@@ -406,8 +407,9 @@ Generate the image and return ONLY the URL, like: https://example.com/image.png`
           const urlPattern = /https?:\/\/[^\s\)"']+\.(png|jpg|jpeg|webp|gif)(\?[^\s\)"']*)?/gi;
           const matches = followUpData.response.match(urlPattern);
           if (matches && matches.length > 0) {
-            imageUrl = matches[0];
-            console.log(`[${timestamp}] [AI Image] ✅ Extracted URL from response field: ${imageUrl.substring(0, 100)}...`);
+            const extractedUrl = matches[0];
+            imageUrl = extractedUrl;
+            console.log(`[${timestamp}] [AI Image] ✅ Extracted URL from response field: ${extractedUrl.substring(0, 100)}...`);
           }
         }
         
