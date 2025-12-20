@@ -4,7 +4,7 @@ import axios from 'axios';
 import { getSession, setSession, resetSession } from './sessions';
 import { env } from '../env';
 import { FORCE_REPLY } from './menus';
-import { isValidVideoFile } from '../util/validate';
+import { isValidVideoFile, isValidImageFile } from '../util/validate';
 import { getTempFilePath, cleanupFile } from '../util/file';
 import { workerClient } from '../services/workerClient';
 import {
@@ -62,6 +62,10 @@ export function setupBatchConvertFlow(bot: Telegraf) {
     await handleFileUpload(ctx);
   });
 
+  bot.on('photo', async (ctx) => {
+    await handleFileUpload(ctx);
+  });
+
   bot.on('document', async (ctx) => {
     if ('document' in ctx.message && ctx.message.document?.mime_type) {
       await handleFileUpload(ctx);
@@ -100,6 +104,11 @@ async function handleFileUpload(ctx: Context) {
   if (ctx.message && 'video' in ctx.message && ctx.message.video) {
     fileId = ctx.message.video.file_id;
     mimeType = ctx.message.video.mime_type;
+  } else if (ctx.message && 'photo' in ctx.message && ctx.message.photo) {
+    // Get the largest photo size
+    const photos = ctx.message.photo;
+    fileId = photos[photos.length - 1].file_id;
+    mimeType = 'image/jpeg'; // Telegram photos are always JPEG
   } else if (ctx.message && 'document' in ctx.message && ctx.message.document) {
     fileId = ctx.message.document.file_id;
     mimeType = ctx.message.document.mime_type;
@@ -108,8 +117,12 @@ async function handleFileUpload(ctx: Context) {
     mimeType = (ctx.message.animation as any).mime_type || 'video/gif';
   }
 
-  if (!fileId || !mimeType || !isValidVideoFile(mimeType)) {
-    await ctx.reply('Please send a valid GIF or video file.');
+  // Accept both images and videos
+  const isVideo = isValidVideoFile(mimeType);
+  const isImage = isValidImageFile(mimeType);
+  
+  if (!fileId || !mimeType || (!isVideo && !isImage)) {
+    await ctx.reply('Please send a valid image (PNG/JPG) or video/GIF file.');
     return;
   }
 
@@ -120,9 +133,14 @@ async function handleFileUpload(ctx: Context) {
   st.lastUploadAt = Date.now();
   console.log(`[${new Date().toISOString()}] [Batch] File queued. Total queued: ${st.queued}, completed: ${st.completed}`);
 
+  // Capture file type info for use in background processing
+  const fileIsImage = isImage;
+  const fileIsVideo = isVideo;
+  const fileMimeType = mimeType;
+
   // Send immediate response WITHOUT awaiting - this allows handler to return immediately
   const uploadTimestamp = new Date().toISOString();
-  console.log(`[${uploadTimestamp}] [Batch] Starting processing for fileId: ${fileId}, mimeType: ${mimeType}`);
+  console.log(`[${uploadTimestamp}] [Batch] Starting processing for fileId: ${fileId}, mimeType: ${mimeType}, isImage: ${fileIsImage}, isVideo: ${fileIsVideo}`);
   ctx.reply('⏳ Processing...').catch(err => console.error(`[${uploadTimestamp}] [Batch] Failed to send processing message:`, err));
   
   // Process in background - use setImmediate to defer execution
@@ -130,7 +148,7 @@ async function handleFileUpload(ctx: Context) {
   setImmediate(async () => {
     const processTimestamp = new Date().toISOString();
     console.log(`[${processTimestamp}] [Batch] ===== Background processing START =====`);
-    console.log(`[${processTimestamp}] [Batch] User: ${ctx.from!.id}, FileId: ${fileId}`);
+    console.log(`[${processTimestamp}] [Batch] User: ${ctx.from!.id}, FileId: ${fileId}, Type: ${fileIsImage ? 'image' : 'video'}`);
     
     try {
       console.log(`[${processTimestamp}] [Batch] Step 1: Getting file info from Telegram...`);
@@ -141,7 +159,21 @@ async function handleFileUpload(ctx: Context) {
         file_size: file.file_size
       });
       
-      const filePath = getTempFilePath('batch', 'tmp');
+      // Determine file extension based on mime type and file path
+      let fileExt = 'tmp';
+      const filePathFromTelegram = file.file_path || '';
+      
+      if (fileIsImage) {
+        fileExt = fileMimeType === 'image/png' ? 'png' : 'jpg';
+      } else if (fileMimeType?.includes('gif') || filePathFromTelegram.endsWith('.gif')) {
+        fileExt = 'gif';
+      } else if (fileMimeType?.includes('webm') || filePathFromTelegram.endsWith('.webm')) {
+        fileExt = 'webm';
+      } else if (fileMimeType?.includes('mp4') || filePathFromTelegram.endsWith('.mp4')) {
+        fileExt = 'mp4';
+      }
+      
+      const filePath = getTempFilePath('batch', fileExt);
       console.log(`[${processTimestamp}] [Batch] Step 2: Downloading file to: ${filePath}`);
       const url = `https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
       
@@ -154,19 +186,49 @@ async function handleFileUpload(ctx: Context) {
       fs.writeFileSync(filePath, Buffer.from(response.data));
       console.log(`[${processTimestamp}] [Batch] File saved to disk: ${filePath}, exists: ${fs.existsSync(filePath)}`);
 
-      console.log(`[${processTimestamp}] [Batch] Step 3: Sending to worker for conversion...`);
-      const result = await workerClient.convert(filePath);
-      console.log(`[${processTimestamp}] [Batch] Conversion complete:`, {
-        output_path: result.output_path,
-        duration: result.duration,
-        kb: result.kb,
-        width: result.width,
-        height: result.height,
-        fps: result.fps
-      });
+      // Use captured file type info
+      let result: { output_path: string; duration?: number; kb: number; width: number; height: number; fps?: number };
+      let stickerFormat: 'static' | 'video';
       
-      cleanupFile(filePath);
-      console.log(`[${processTimestamp}] [Batch] Cleaned up temp input file: ${filePath}`);
+      if (fileIsImage) {
+        console.log(`[${processTimestamp}] [Batch] Step 3: Processing as image sticker...`);
+        const assetResult = await workerClient.prepareAsset(filePath);
+        console.log(`[${processTimestamp}] [Batch] Image preparation complete:`, {
+          output_path: assetResult.output_path,
+          status: assetResult.status
+        });
+        
+        // Get image size (prepareAsset always outputs 512x512 PNG)
+        const imageStats = fs.statSync(assetResult.output_path);
+        
+        result = {
+          output_path: assetResult.output_path,
+          kb: Math.round(imageStats.size / 1024),
+          width: 512, // prepareAsset always outputs 512x512
+          height: 512,
+        };
+        stickerFormat = 'static';
+        
+        cleanupFile(filePath);
+        console.log(`[${processTimestamp}] [Batch] Cleaned up temp input file: ${filePath}`);
+      } else {
+        console.log(`[${processTimestamp}] [Batch] Step 3: Sending to worker for video conversion...`);
+        const convertResult = await workerClient.convert(filePath);
+        console.log(`[${processTimestamp}] [Batch] Conversion complete:`, {
+          output_path: convertResult.output_path,
+          duration: convertResult.duration,
+          kb: convertResult.kb,
+          width: convertResult.width,
+          height: convertResult.height,
+          fps: convertResult.fps
+        });
+        
+        result = convertResult;
+        stickerFormat = 'video';
+        
+        cleanupFile(filePath);
+        console.log(`[${processTimestamp}] [Batch] Cleaned up temp input file: ${filePath}`);
+      }
 
       // Verify output file exists before storing
       console.log(`[${processTimestamp}] [Batch] Step 4: Verifying output file exists...`);
@@ -176,27 +238,37 @@ async function handleFileUpload(ctx: Context) {
         path: result.output_path,
         exists: outputExists,
         size: outputSize,
-        sizeKB: Math.round(outputSize / 1024)
+        sizeKB: Math.round(outputSize / 1024),
+        format: stickerFormat
       });
       
       if (!outputExists) {
-        console.error(`[${processTimestamp}] [Batch] ERROR: Converted file not found at: ${result.output_path}`);
+        console.error(`[${processTimestamp}] [Batch] ERROR: Processed file not found at: ${result.output_path}`);
         console.error(`[${processTimestamp}] [Batch] Temp directory contents:`, {
           tempDir: '/tmp/packputer',
           exists: fs.existsSync('/tmp/packputer'),
           files: fs.existsSync('/tmp/packputer') ? fs.readdirSync('/tmp/packputer').slice(0, 20) : []
         });
-        throw new Error(`Converted file not found at: ${result.output_path}`);
+        throw new Error(`Processed file not found at: ${result.output_path}`);
       }
 
       // Get fresh session to avoid race conditions
-      console.log(`[${processTimestamp}] [Batch] Step 5: Updating session with converted file...`);
+      console.log(`[${processTimestamp}] [Batch] Step 5: Updating session with processed file...`);
       const currentSession = getSession(ctx.from!.id);
       console.log(`[${processTimestamp}] [Batch] Current session before update:`, {
         mode: currentSession.mode,
         fileCount: currentSession.uploadedFiles.length,
-        existingPaths: currentSession.uploadedFiles.map(f => f.filePath)
+        existingPaths: currentSession.uploadedFiles.map(f => f.filePath),
+        currentStickerFormat: currentSession.stickerFormat
       });
+      
+      // Set sticker format in session (use first file's format, or keep existing if mixed)
+      if (!currentSession.stickerFormat) {
+        currentSession.stickerFormat = stickerFormat;
+      } else if (currentSession.stickerFormat !== stickerFormat) {
+        // Mixed formats - warn user but allow (they'll need to create separate packs)
+        console.warn(`[${processTimestamp}] [Batch] Mixed sticker formats detected: ${currentSession.stickerFormat} and ${stickerFormat}`);
+      }
       
       currentSession.uploadedFiles.push({
         fileId,
@@ -211,16 +283,23 @@ async function handleFileUpload(ctx: Context) {
       });
 
       setSession(ctx.from!.id, currentSession);
-      console.log(`[${processTimestamp}] [Batch] Session updated, new file count: ${currentSession.uploadedFiles.length}`);
+      console.log(`[${processTimestamp}] [Batch] Session updated, new file count: ${currentSession.uploadedFiles.length}, format: ${currentSession.stickerFormat}`);
       console.log(`[${processTimestamp}] [Batch] All file paths in session:`, currentSession.uploadedFiles.map(f => ({
         fileId: f.fileId,
         filePath: f.filePath,
         exists: f.filePath ? fs.existsSync(f.filePath) : false
       })));
 
-      await ctx.reply(
-        `✅ Ready: ${result.duration.toFixed(1)}s · ${result.width}x${result.height}px · ${result.kb}KB`
-      );
+      // Format response message based on file type
+      if (fileIsImage) {
+        await ctx.reply(
+          `✅ Ready: ${result.width}x${result.height}px · ${result.kb}KB (PNG sticker)`
+        );
+      } else {
+        await ctx.reply(
+          `✅ Ready: ${result.duration?.toFixed(1)}s · ${result.width}x${result.height}px · ${result.kb}KB`
+        );
+      }
 
       // Increment completed count
       const userId = ctx.from!.id;
