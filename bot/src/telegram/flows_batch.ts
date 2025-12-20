@@ -93,7 +93,8 @@ async function handleFileUpload(ctx: Context) {
   if (session.uploadedFiles.length >= MAX_BATCH_SIZE) {
     console.log(`[${startTimestamp}] [Batch] Batch limit reached (${session.uploadedFiles.length}/${MAX_BATCH_SIZE})`);
     await ctx.reply(
-      `Batch limit is 10. Processing will start automatically...`
+      `Batch limit reached (10 files per batch). Processing will start automatically...\n\n` +
+      `💡 You can create multiple batches and add them all to the same pack - packs have no limit!`
     );
     // Still process the file, but will auto-proceed after conversion
   }
@@ -349,7 +350,8 @@ async function handleFileUpload(ctx: Context) {
             await ctx.reply(
               '✅ All files converted! Reply with:\n' +
               '• "new" to create a new pack\n' +
-              '• "existing <pack_name>" to add to existing pack',
+              '• "existing <pack_name>" to add to existing pack\n\n' +
+              '💡 Packs can have unlimited stickers - you can add more batches later!',
               FORCE_REPLY
             );
           } else {

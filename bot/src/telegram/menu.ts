@@ -7,7 +7,7 @@ import { Markup } from 'telegraf';
 export function mainMenuKeyboard() {
   return Markup.inlineKeyboard([
     [
-      Markup.button.callback('🧰 Batch Convert (≤10)', 'cmd:batch')
+      Markup.button.callback('🧰 Batch Convert (≤10 per batch)', 'cmd:batch')
     ],
     [
       Markup.button.callback('✨ AI Video Sticker', 'cmd:ai'),

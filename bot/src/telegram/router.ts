@@ -51,7 +51,9 @@ export async function runCommand(ctx: Context, key: CommandKey): Promise<void> {
         const { resetBatchState } = await import('./flows_batch');
         resetBatchState(ctx.from!.id);
         await ctx.reply(
-          'Send up to 10 GIFs/videos. I\'ll convert each into Telegram-ready stickers.\nWhen finished, use /done command.'
+          'Send up to 10 GIFs/videos/images per batch. I\'ll convert each into Telegram-ready stickers.\n\n' +
+          '💡 Tip: You can create multiple batches and add them all to the same pack (packs have no limit!).\n' +
+          'When finished, use /done command.'
         );
         break;
       }
@@ -101,7 +103,8 @@ export async function runCommand(ctx: Context, key: CommandKey): Promise<void> {
         await ctx.reply(
           '✅ All files ready! Reply with:\n' +
           '• "new" to create a new pack\n' +
-          '• "existing <pack_name>" to add to existing pack',
+          '• "existing <pack_name>" to add to existing pack\n\n' +
+          '💡 Packs can have unlimited stickers - you can add more batches later!',
           FORCE_REPLY
         );
         break;
@@ -112,7 +115,7 @@ export async function runCommand(ctx: Context, key: CommandKey): Promise<void> {
           'PackPuter Help 📖\n\n' +
           'Commands:\n' +
           '/pack - Start the bot and see main menu\n' +
-          '/batch - Upload up to 10 GIFs/videos, convert them all, and create a pack\n' +
+          '/batch - Upload up to 10 files per batch (images/videos/GIFs). Packs can have unlimited stickers!\n' +
           '/ai - AI Video Sticker Maker: Send a base image, choose a template\n' +
           '/ai_image - AI Image Sticker Maker: Create static PNG stickers\n' +
           '/generate - AI Generate Pack: Generate a full sticker pack (6 or 12 stickers)\n' +
