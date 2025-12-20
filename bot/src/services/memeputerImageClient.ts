@@ -288,96 +288,93 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
       throw new Error(`Memeputer needs additional information: ${JSON.stringify(responseData.needs)}`);
     }
 
-    // Agent returns job spec with engine: "memeputer_i2i" - call Memeputer image generation API
+    // Agent returns job spec with engine: "memeputer_i2i" - send follow-up chat message to generate image
     if (responseData?.type === 'image_sticker' && responseData?.engine === 'memeputer_i2i') {
       console.log(`[${timestamp}] [AI Image] ✅ Agent returned job spec (engine: ${responseData.engine})`);
       console.log(`[${timestamp}] [AI Image] Job spec keys:`, Object.keys(responseData));
-      console.log(`[${timestamp}] [AI Image] Calling Memeputer image generation API...`);
+      console.log(`[${timestamp}] [AI Image] Sending follow-up chat message to generate image...`);
       
       try {
-        // Call Memeputer image generation endpoint with the job spec
-        // Endpoint format: /v1/images/generations or /api/v1/agents/{agentId}/generate-image
-        // Try the agent-specific endpoint first
-        const imageGenEndpoint = `/api/v1/agents/${env.MEMEPUTER_AGENT_ID}/generate-image`;
-        
-        // Extract job spec fields to avoid TypeScript issues
+        // Extract job spec fields
         const jobSpec = responseData;
         const jobPrompt: string = jobSpec.prompt || '';
         const jobNegativePrompt: string = jobSpec.negative_prompt || '';
         const jobCanvasW: number = jobSpec.canvas?.w || 512;
         const jobCanvasH: number = jobSpec.canvas?.h || 512;
         
-        // Build request with job spec
-        const imageGenRequest: {
-          prompt: string;
-          negative_prompt: string;
-          base_image_url: string;
-          width: number;
-          height: number;
-          n: number;
-          response_format: string;
-        } = {
-          prompt: jobPrompt,
-          negative_prompt: jobNegativePrompt,
-          base_image_url: baseImageUrl,
-          width: jobCanvasW,
-          height: jobCanvasH,
-          n: 1,
-          response_format: 'url',
-        };
+        // Send follow-up message to agent asking it to generate the image using the job spec
+        // The agent should handle the actual image generation and return the image URL
+        const followUpMessage = `Please generate the image using this job spec:
+- Prompt: ${jobPrompt}
+- Negative prompt: ${jobNegativePrompt}
+- Canvas: ${jobCanvasW}x${jobCanvasH}
+- Base image URL: ${baseImageUrl}
+
+Return the generated image URL in your response.`;
         
-        console.log(`[${timestamp}] [AI Image] Calling: ${env.MEMEPUTER_API_BASE}${imageGenEndpoint}`);
-        console.log(`[${timestamp}] [AI Image] Request:`, {
-          hasPrompt: !!imageGenRequest.prompt,
-          hasNegativePrompt: !!imageGenRequest.negative_prompt,
-          hasBaseImageUrl: !!imageGenRequest.base_image_url,
-          width: imageGenRequest.width,
-          height: imageGenRequest.height,
-        });
+        console.log(`[${timestamp}] [AI Image] Sending follow-up chat message to agent...`);
+        console.log(`[${timestamp}] [AI Image] Follow-up message length: ${followUpMessage.length} chars`);
         
-        const imageGenResponse = await client.post(
-          imageGenEndpoint,
-          imageGenRequest,
+        const followUpResponse = await client.post(
+          `/v1/agents/${env.MEMEPUTER_AGENT_ID}/chat`,
+          {
+            message: followUpMessage,
+            base_image_url: baseImageUrl, // Include base image URL again for context
+          },
           {
             headers: {
               'Content-Type': 'application/json',
             },
-            timeout: 120000, // 2 minutes
+            timeout: 180000, // 3 minutes for image generation
           }
         ) as any;
         
-        console.log(`[${timestamp}] [AI Image] Image generation response status: ${imageGenResponse.status}`);
-        console.log(`[${timestamp}] [AI Image] Image generation response keys:`, Object.keys(imageGenResponse.data || {}));
+        console.log(`[${timestamp}] [AI Image] Follow-up response status: ${followUpResponse.status}`);
         
-        // Parse response - Memeputer might return various formats:
-        // { data: [{ url: "..." }] }
-        // { data: { url: "..." } }
-        // { url: "..." }
-        // { image_url: "..." }
-        let imageUrl: string | undefined;
-        const imageGenResponseData: any = imageGenResponse.data;
-        
-        if (imageGenResponseData?.data) {
-          if (Array.isArray(imageGenResponseData.data) && imageGenResponseData.data[0]?.url) {
-            imageUrl = imageGenResponseData.data[0].url;
-          } else if (imageGenResponseData.data?.url) {
-            imageUrl = imageGenResponseData.data.url;
-          } else if (imageGenResponseData.data?.image_url) {
-            imageUrl = imageGenResponseData.data.image_url;
+        // Parse follow-up response
+        let followUpData = followUpResponse.data;
+        if (followUpData?.data?.response) {
+          if (typeof followUpData.data.response === 'string') {
+            try {
+              followUpData = JSON.parse(followUpData.data.response);
+            } catch (e) {
+              followUpData = followUpData.data;
+            }
+          } else {
+            followUpData = followUpData.data.response;
           }
-        } else if (imageGenResponseData?.url) {
-          imageUrl = imageGenResponseData.url;
-        } else if (imageGenResponseData?.image_url) {
-          imageUrl = imageGenResponseData.image_url;
+        } else if (followUpData?.data) {
+          followUpData = followUpData.data;
         }
         
-        console.log(`[${timestamp}] [AI Image] Parsed response structure:`, {
-          hasData: !!imageGenResponseData?.data,
-          dataIsArray: Array.isArray(imageGenResponseData?.data),
-          hasUrl: !!imageGenResponseData?.url,
-          hasImageUrl: !!imageGenResponseData?.image_url,
-          foundImageUrl: !!imageUrl,
-        });
+        console.log(`[${timestamp}] [AI Image] Follow-up response keys:`, followUpData ? Object.keys(followUpData) : []);
+        console.log(`[${timestamp}] [AI Image] Follow-up response preview:`, JSON.stringify(followUpData).substring(0, 500));
+        
+        // Try to extract image URL from follow-up response
+        let imageUrl: string | undefined;
+        
+        // Check various possible response formats
+        if (followUpData?.image_url) {
+          imageUrl = followUpData.image_url;
+        } else if (followUpData?.image) {
+          imageUrl = followUpData.image;
+        } else if (followUpData?.url) {
+          imageUrl = followUpData.url;
+        } else if (followUpData?.data) {
+          if (Array.isArray(followUpData.data) && followUpData.data[0]?.url) {
+            imageUrl = followUpData.data[0].url;
+          } else if (followUpData.data?.url) {
+            imageUrl = followUpData.data.url;
+          } else if (followUpData.data?.image_url) {
+            imageUrl = followUpData.data.image_url;
+          }
+        } else if (typeof followUpData?.response === 'string') {
+          // Try to extract URL from text response using regex
+          const urlMatch = followUpData.response.match(/https?:\/\/[^\s\)]+\.(png|jpg|jpeg|webp)/i);
+          if (urlMatch) {
+            imageUrl = urlMatch[0];
+          }
+        }
         
         if (imageUrl) {
           console.log(`[${timestamp}] [AI Image] ✅ Found generated image URL: ${imageUrl.substring(0, 100)}...`);
@@ -393,22 +390,17 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
           console.log(`[${timestamp}] [AI Image] ✅ Generated sticker: ${outputPath}`);
           return outputPath;
         } else {
-          console.error(`[${timestamp}] [AI Image] ❌ No image URL in image generation response:`, JSON.stringify(imageGenResponse.data).substring(0, 500));
-          throw new Error('Memeputer image generation API did not return an image URL. Response: ' + JSON.stringify(imageGenResponse.data).substring(0, 500));
+          console.error(`[${timestamp}] [AI Image] ❌ No image URL in follow-up response:`, JSON.stringify(followUpData).substring(0, 1000));
+          throw new Error('Agent did not return an image URL in the follow-up response. The agent may need to be configured to return image URLs directly. Response: ' + JSON.stringify(followUpData).substring(0, 500));
         }
-      } catch (imageGenError: any) {
-        console.error(`[${timestamp}] [AI Image] ❌ Image generation API call failed:`, {
-          message: imageGenError.message,
-          status: imageGenError.response?.status,
-          data: imageGenError.response?.data,
+      } catch (followUpError: any) {
+        console.error(`[${timestamp}] [AI Image] ❌ Follow-up chat message failed:`, {
+          message: followUpError.message,
+          status: followUpError.response?.status,
+          data: followUpError.response?.data,
         });
         
-        // If the endpoint doesn't exist or returns 404, provide helpful error
-        if (imageGenError.response?.status === 404) {
-          throw new Error('Memeputer image generation endpoint not found. The agent returned a job spec, but the image generation API endpoint may not be available or may use a different path. Please check Memeputer API documentation for the correct image generation endpoint.');
-        }
-        
-        throw new Error(`Memeputer image generation failed: ${imageGenError.message}. Job spec was valid, but the image generation API call failed.`);
+        throw new Error(`Memeputer image generation failed: ${followUpError.message}. The agent returned a job spec, but the follow-up image generation request failed.`);
       }
     }
 
