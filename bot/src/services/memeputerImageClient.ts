@@ -302,17 +302,22 @@ export async function generateSingleSticker(options: SingleStickerOptions): Prom
         const jobCanvasW: number = jobSpec.canvas?.w || 512;
         const jobCanvasH: number = jobSpec.canvas?.h || 512;
         
-        // Send follow-up message to agent asking it to generate the image using the job spec
-        // The agent should handle the actual image generation and return the image URL
-        const followUpMessage = `Please generate the image using this job spec:
-- Prompt: ${jobPrompt}
-- Negative prompt: ${jobNegativePrompt}
-- Canvas: ${jobCanvasW}x${jobCanvasH}
-- Base image URL: ${baseImageUrl}
+        // Send follow-up message to agent - be VERY explicit that we need the image URL, not another job spec
+        const followUpMessage = `IMPORTANT: Generate the image NOW and return ONLY the image URL.
 
-Return the generated image URL in your response.`;
+DO NOT return another job spec. DO NOT return JSON with type/engine/prompt fields.
+
+You have the job spec already. Use it to generate the image using Memeputer's image generation service, then return ONLY the HTTPS URL to the generated PNG image.
+
+Job spec details:
+- Prompt: ${jobPrompt.substring(0, 200)}...
+- Negative prompt: ${jobNegativePrompt.substring(0, 100)}...
+- Canvas: ${jobCanvasW}x${jobCanvasH}
+- Base image: ${baseImageUrl}
+
+Generate the image and return ONLY the URL, like: https://example.com/image.png`;
         
-        console.log(`[${timestamp}] [AI Image] Sending follow-up chat message to agent...`);
+        console.log(`[${timestamp}] [AI Image] Sending explicit follow-up chat message to agent...`);
         console.log(`[${timestamp}] [AI Image] Follow-up message length: ${followUpMessage.length} chars`);
         
         const followUpResponse = await client.post(
@@ -330,30 +335,45 @@ Return the generated image URL in your response.`;
         ) as any;
         
         console.log(`[${timestamp}] [AI Image] Follow-up response status: ${followUpResponse.status}`);
+        console.log(`[${timestamp}] [AI Image] Follow-up raw response:`, JSON.stringify(followUpResponse.data).substring(0, 1000));
         
-        // Parse follow-up response
+        // Parse follow-up response - check both structured and text formats
         let followUpData = followUpResponse.data;
+        let responseText: string | undefined;
+        
+        // Extract response text first (might contain URL)
         if (followUpData?.data?.response) {
           if (typeof followUpData.data.response === 'string') {
+            responseText = followUpData.data.response;
             try {
               followUpData = JSON.parse(followUpData.data.response);
             } catch (e) {
-              followUpData = followUpData.data;
+              // Not JSON, keep as text
+              followUpData = { response: followUpData.data.response };
             }
           } else {
             followUpData = followUpData.data.response;
           }
         } else if (followUpData?.data) {
+          if (typeof followUpData.data === 'string') {
+            responseText = followUpData.data;
+          }
           followUpData = followUpData.data;
         }
         
+        // Also check if response itself is a string
+        if (typeof followUpResponse.data === 'string') {
+          responseText = followUpResponse.data;
+        }
+        
         console.log(`[${timestamp}] [AI Image] Follow-up response keys:`, followUpData ? Object.keys(followUpData) : []);
+        console.log(`[${timestamp}] [AI Image] Follow-up response text length:`, responseText?.length || 0);
         console.log(`[${timestamp}] [AI Image] Follow-up response preview:`, JSON.stringify(followUpData).substring(0, 500));
         
-        // Try to extract image URL from follow-up response
+        // Try to extract image URL from follow-up response - check multiple sources
         let imageUrl: string | undefined;
         
-        // Check various possible response formats
+        // 1. Check structured fields first
         if (followUpData?.image_url) {
           imageUrl = followUpData.image_url;
         } else if (followUpData?.image) {
@@ -368,11 +388,26 @@ Return the generated image URL in your response.`;
           } else if (followUpData.data?.image_url) {
             imageUrl = followUpData.data.image_url;
           }
-        } else if (typeof followUpData?.response === 'string') {
-          // Try to extract URL from text response using regex
-          const urlMatch = followUpData.response.match(/https?:\/\/[^\s\)]+\.(png|jpg|jpeg|webp)/i);
-          if (urlMatch) {
-            imageUrl = urlMatch[0];
+        }
+        
+        // 2. If no structured URL, try to extract from text response
+        if (!imageUrl && responseText) {
+          // Look for HTTPS URLs ending in image extensions
+          const urlPattern = /https?:\/\/[^\s\)"']+\.(png|jpg|jpeg|webp|gif)(\?[^\s\)"']*)?/gi;
+          const matches = responseText.match(urlPattern);
+          if (matches && matches.length > 0) {
+            imageUrl = matches[0];
+            console.log(`[${timestamp}] [AI Image] ✅ Extracted URL from text response: ${imageUrl.substring(0, 100)}...`);
+          }
+        }
+        
+        // 3. Also check if response field contains URL
+        if (!imageUrl && typeof followUpData?.response === 'string') {
+          const urlPattern = /https?:\/\/[^\s\)"']+\.(png|jpg|jpeg|webp|gif)(\?[^\s\)"']*)?/gi;
+          const matches = followUpData.response.match(urlPattern);
+          if (matches && matches.length > 0) {
+            imageUrl = matches[0];
+            console.log(`[${timestamp}] [AI Image] ✅ Extracted URL from response field: ${imageUrl.substring(0, 100)}...`);
           }
         }
         
@@ -390,8 +425,22 @@ Return the generated image URL in your response.`;
           console.log(`[${timestamp}] [AI Image] ✅ Generated sticker: ${outputPath}`);
           return outputPath;
         } else {
-          console.error(`[${timestamp}] [AI Image] ❌ No image URL in follow-up response:`, JSON.stringify(followUpData).substring(0, 1000));
-          throw new Error('Agent did not return an image URL in the follow-up response. The agent may need to be configured to return image URLs directly. Response: ' + JSON.stringify(followUpData).substring(0, 500));
+          // Check if agent returned another job spec (common issue)
+          const isAnotherJobSpec = followUpData?.type === 'image_sticker' && followUpData?.engine === 'memeputer_i2i';
+          
+          if (isAnotherJobSpec) {
+            console.error(`[${timestamp}] [AI Image] ❌ Agent returned another job spec instead of generating image`);
+            console.error(`[${timestamp}] [AI Image] This indicates the agent is configured to return job specs but not to actually generate images.`);
+            console.error(`[${timestamp}] [AI Image] The agent knowledge base needs to be updated to:`);
+            console.error(`[${timestamp}] [AI Image]   1. Actually call Memeputer's image generation API when it receives a job spec`);
+            console.error(`[${timestamp}] [AI Image]   2. Return the generated image URL directly, not another job spec`);
+            throw new Error('The Memeputer agent returned a job spec but did not generate the image. The agent needs to be configured to actually generate images and return the image URL. Please update the agent knowledge base to include image generation logic.');
+          } else {
+            console.error(`[${timestamp}] [AI Image] ❌ No image URL found in follow-up response`);
+            console.error(`[${timestamp}] [AI Image] Response structure:`, JSON.stringify(followUpData).substring(0, 1000));
+            console.error(`[${timestamp}] [AI Image] Response text:`, responseText?.substring(0, 500));
+            throw new Error('Agent did not return an image URL. The agent may need to be configured to generate images and return URLs directly. Please check the agent knowledge base configuration.');
+          }
         }
       } catch (followUpError: any) {
         console.error(`[${timestamp}] [AI Image] ❌ Follow-up chat message failed:`, {
