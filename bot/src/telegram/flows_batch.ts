@@ -118,10 +118,15 @@ async function handleFileUpload(ctx: Context) {
   }
 
   // Accept both images and videos
+  if (!fileId || !mimeType) {
+    await ctx.reply('Please send a valid image (PNG/JPG) or video/GIF file.');
+    return;
+  }
+  
   const isVideo = isValidVideoFile(mimeType);
   const isImage = isValidImageFile(mimeType);
   
-  if (!fileId || !mimeType || (!isVideo && !isImage)) {
+  if (!isVideo && !isImage) {
     await ctx.reply('Please send a valid image (PNG/JPG) or video/GIF file.');
     return;
   }
