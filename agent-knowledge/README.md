@@ -12,7 +12,8 @@
 2. **`02-template-rules.md`** - Template-specific rules (GM, GN, LFG, HODL, etc.)
 3. **`03-quality-constraints.md`** - Quality requirements (canvas, subject, outline, shadow, text)
 4. **`04-output-format.md`** - Exact JSON output format specification
-5. **`PERSONALITY_SETTINGS.md`** - Recommended personality settings (Bio, Lore, Communication Style, etc.)
+5. **`05-image-generation-execution.md`** - **NEW:** Instructions for actually generating images and returning URLs (not just job specs)
+6. **`PERSONALITY_SETTINGS.md`** - Recommended personality settings (Bio, Lore, Communication Style, etc.)
 
 ---
 
@@ -32,7 +33,7 @@
 
 ### Step 2: Add New Knowledge Files
 
-For each of the 4 knowledge files (`01-core-contract.md` through `04-output-format.md`):
+For each of the 5 knowledge files (`01-core-contract.md` through `05-image-generation-execution.md`):
 
 1. Click **"Add New Knowledge"** → **"Text"**
 2. **Title:** Use the filename (e.g., "01-core-contract" or "Core Contract v3.0")
@@ -44,6 +45,7 @@ For each of the 4 knowledge files (`01-core-contract.md` through `04-output-form
 - `02-template-rules.md` → **"Sticker Template Rules"**
 - `03-quality-constraints.md` → **"Quality Constraints for Image Stickers"**
 - `04-output-format.md` → **"Output Format Specification"**
+- `05-image-generation-execution.md` → **"Image Generation Execution Guide"** ⚠️ **CRITICAL: This file tells the agent to actually generate images, not just return job specs**
 
 ### Step 3: Update Personality Settings
 
@@ -116,10 +118,11 @@ For each of the 4 knowledge files (`01-core-contract.md` through `04-output-form
 
 ### Step 4: Verify Setup
 
-1. Check that all 4 knowledge files are listed in **Knowledge Sources**
+1. Check that all 5 knowledge files are listed in **Knowledge Sources**
 2. Verify each file shows "completed" status
 3. Check that personality settings are saved
-4. Test with a simple request to ensure the agent recognizes `base_image_url`
+4. **IMPORTANT:** Make sure `05-image-generation-execution.md` is uploaded - this tells the agent to actually generate images when asked
+5. Test with a simple request to ensure the agent recognizes `base_image_url`
 
 ---
 
@@ -139,7 +142,13 @@ For each of the 4 knowledge files (`01-core-contract.md` through `04-output-form
 - Engine always "memeputer_i2i" (image-to-image)
 - Type always "image_sticker" (not video)
 
-### 4. Personality Updates
+### 4. **Image Generation Execution (NEW - CRITICAL)**
+- **`05-image-generation-execution.md`** explains that when explicitly asked to generate, the agent must:
+  - Actually call Memeputer's image generation API
+  - Return the image URL directly, not another job spec
+  - This fixes the issue where the agent returns job specs but never generates images
+
+### 5. Personality Updates
 - Bio/Lore updated to mention URL-based input
 - Communication Style includes explicit URL fetching instructions
 - Topics include "URL-based image input"
