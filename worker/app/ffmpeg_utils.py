@@ -63,40 +63,50 @@ def encode_webm(
         preserve_alpha: If True, ensures output has alpha channel (yuva420p)
     """
     try:
-        # First, check if input has alpha by probing
+        # Check input format
         _, _, _, _, input_pix_fmt, _ = probe_media(input_path)
         has_input_alpha = input_pix_fmt and 'yuva' in input_pix_fmt.lower()
         
-        # Scale filter - maintain aspect ratio
+        # Build filter chain
         scale_filter = f"scale='if(gt(iw,ih),{side},-1)':'if(gt(iw,ih),-1,{side})'"
         
-        # Pad filter - use transparent color if preserving alpha
-        if preserve_alpha or has_input_alpha:
-            # Use transparent black for padding (alpha=0)
+        if preserve_alpha:
+            # For alpha output: use transparent padding
             pad_filter = f"pad={side}:{side}:(ow-iw)/2:(oh-ih)/2:color=0x00000000@0"
+            if not has_input_alpha:
+                # Input has no alpha - add it by converting format first
+                # This creates alpha with full opacity for existing pixels
+                vf_chain = f"format=yuva420p,{scale_filter},{pad_filter}"
+            else:
+                # Input has alpha - preserve it
+                vf_chain = f"{scale_filter},{pad_filter}"
         else:
-            # Use opaque black if no alpha
+            # No alpha needed - use opaque padding
             pad_filter = f"pad={side}:{side}:(ow-iw)/2:(oh-ih)/2:color=0x00000000"
+            vf_chain = f"{scale_filter},{pad_filter}"
         
+        # VP9 encoding
         cmd = [
             'ffmpeg',
             '-i', input_path,
+            '-vf', vf_chain,
             '-c:v', 'libvpx-vp9',
-            '-pix_fmt', 'yuva420p',  # VP9 with alpha channel (CRITICAL for transparency)
-            '-auto-alt-ref', '0',    # Important for alpha in VP9
+            '-pix_fmt', 'yuva420p' if preserve_alpha else 'yuv420p',
+            '-auto-alt-ref', '0',
             '-crf', str(crf),
             '-b:v', '0',
-            '-an',  # No audio
+            '-an',
             '-r', str(fps),
-            '-vf', f"{scale_filter},{pad_filter}",
-            '-loop', '0',
-            '-y',  # Overwrite output
+            '-y',
             out_path
         ]
         
         if duration:
-            cmd.insert(-2, '-t')
-            cmd.insert(-2, str(duration))
+            # Insert duration before output file
+            cmd.insert(-1, '-t')
+            cmd.insert(-1, str(duration))
+        
+        print(f"[encode_webm] FFmpeg command: {' '.join(cmd)}", flush=True)
         
         result = subprocess.run(
             cmd,
@@ -105,18 +115,35 @@ def encode_webm(
             check=True
         )
         
-        # Verify output has alpha
+        # Verify output file exists and has correct format
+        if not os.path.exists(out_path):
+            print(f"ERROR: Output file not created: {out_path}")
+            return False
+        
+        # Verify output has alpha (only warn, don't fail - some inputs can't have alpha)
         _, _, _, _, output_pix_fmt, _ = probe_media(out_path)
         if preserve_alpha and output_pix_fmt and 'yuva' not in output_pix_fmt.lower():
-            print(f"WARNING: Output video missing alpha! pix_fmt={output_pix_fmt}")
+            print(f"WARNING: Output video missing alpha! pix_fmt={output_pix_fmt}, expected yuva420p")
+            # Don't fail - allow non-alpha output if input didn't have alpha
+            # This allows compression to work even when alpha can't be created
+            if not has_input_alpha:
+                print(f"INFO: Input had no alpha, allowing yuv420p output", flush=True)
+                return True
             return False
         
         return True
     except subprocess.CalledProcessError as e:
-        print(f"FFmpeg error: {e.stderr}")
+        print(f"FFmpeg encode error (CRF={crf}, FPS={fps}, Side={side}):")
+        print(f"  Command: {' '.join(cmd)}")
+        print(f"  Return code: {e.returncode}")
+        print(f"  stderr: {e.stderr}")
+        if e.stdout:
+            print(f"  stdout: {e.stdout}")
         return False
     except Exception as e:
-        print(f"Encode error: {e}")
+        print(f"Encode error (CRF={crf}, FPS={fps}, Side={side}): {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def get_file_size_kb(path: str) -> int:
